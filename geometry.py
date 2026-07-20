@@ -2,9 +2,10 @@ import numpy as np
 from dataclasses import dataclass
 from config import SimulationConfig
 
+
 @dataclass
 class Mesh:
-    """Description du maillage du domaine."""
+    """Description of the domain mesh."""
 
     D: np.ndarray
     X: np.ndarray
@@ -13,8 +14,9 @@ class Mesh:
     N_w: list[int]
     N_tot: int
 
+
 def build_medium_mesh(cfg: SimulationConfig, r_factor_val: float, compute_derivative: bool = False):
-    """Génère le maillage spatial et les profils de profondeur."""
+    """Generates the spatial mesh and the depth profiles."""
     N_tot_1 = int(r_factor_val * cfg.N_tot)
     dz = cfg.Hmax / (N_tot_1 - 1)
 
@@ -31,13 +33,13 @@ def build_medium_mesh(cfg: SimulationConfig, r_factor_val: float, compute_deriva
             Z.append(z)
             DZ_W.append(dz)
         return Mesh(
-    D=D,
-    X=X,
-    Z=Z,
-    dz=DZ_W,
-    N_w=N_w,
-    N_tot=N_tot_1,
-)
+            D=D,
+            X=X,
+            Z=Z,
+            dz=DZ_W,
+            N_w=N_w,
+            N_tot=N_tot_1,
+        )
     else:
         dh = cfg.Deriv_step * dz
         D_der = []
@@ -48,16 +50,15 @@ def build_medium_mesh(cfg: SimulationConfig, r_factor_val: float, compute_deriva
             DZ_W.append(dz)
         N_w = [max(round(D_der[i] / dz), 2) for i in range(cfg.N_totX)]
         return Mesh(
-    D=D,
-    X=X,
-    Z=Z,
-    dz=DZ_W,
-    N_w=N_w,
-    N_tot=N_tot_1,
-)
+            D=D_der,
+            X=X,
+            Z=Z,
+            dz=DZ_W,
+            N_w=N_w,
+            N_tot=N_tot_1,
+        )
+
 
 def compute_nombres_modes(cfg: SimulationConfig) -> int:
-    """Calcule le nombre de modes estimé en fonction de la configuration."""
+    """Estimates the number of modes based on the configuration."""
     return int((cfg.Hmax / np.pi) * np.sqrt((cfg.omega / cfg.c_s) ** 2 - np.cos(cfg.alpha) * (cfg.omega / cfg.c_w) ** 2)) + 3
-
-
