@@ -49,3 +49,14 @@ class SimulationConfig:
     def eta(self) -> float:
         """Attenuation factor."""
         return 1.0 / (40.0 * np.pi * np.log10(np.exp(1)))
+
+    @property
+    def angle_deg(self) -> float:
+        """
+        Wedge angle, in degrees, computed from the bathymetric slope
+        between (X_0, D_0) and (X_fin, D_fin).
+
+        Not to be confused with `alpha` (critical angle threshold used
+        to estimate the number of modes).
+        """
+        return np.degrees(np.arctan((self.D_0 - self.D_fin) / (self.X_fin - self.X_0)))

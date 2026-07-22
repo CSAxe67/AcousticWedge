@@ -43,7 +43,7 @@ def plot_tl_1d(cfg: SimulationConfig, results, x_ref, TL_ref):
     ax.set_xlim([cfg.X_0, cfg.X_fin])
     ax.set_ylim([-90, 0])
     ax.set_ylabel("TL (dB re 1 m)")
-    ax.set_title(f"TL — f={cfg.freq} Hz")
+    ax.set_title(f"TL — f={cfg.freq} Hz, wedge angle={cfg.angle_deg:.1f} deg")
     ax.legend(loc="lower right")
     ax.grid(True, linestyle=":", alpha=0.6)
 
@@ -71,7 +71,7 @@ def plot_tl_1d(cfg: SimulationConfig, results, x_ref, TL_ref):
     plt.tight_layout()
     fname = (
         f"TL_f{cfg.freq}Hz_nmod{cfg.nmod}_deriv{deriv_step}_Ntot{cfg.N_tot}_NtotX{cfg.N_totX}"
-        f"_Hmax{cfg.Hmax}_betaval{cfg.beta_sediment_1}_ztrans{cfg.z_transition}_20deg.png"
+        f"_Hmax{cfg.Hmax}_betaval{cfg.beta_sediment_1}_ztrans{cfg.z_transition}_{cfg.angle_deg:.0f}deg.png"
     )
     fig.savefig(fname, dpi=150, bbox_inches="tight")
     plt.show()
@@ -86,7 +86,8 @@ def plot_tl_2d(cfg: SimulationConfig, results):
     plt.figure(figsize=(14, 6))
     mesh = plt.pcolormesh(X_grid, Z_fine, TL_2d, cmap="jet", vmin=-60, vmax=0, shading="auto")
 
-    plt.title(f"Transmission Loss (TL) 2D field — f = {cfg.freq} Hz", fontsize=14, fontweight="bold")
+    plt.title(f"Transmission Loss (TL) 2D field — f = {cfg.freq} Hz, wedge angle = {cfg.angle_deg:.1f} deg",
+              fontsize=14, fontweight="bold")
     plt.xlabel("Distance / Range (m)", fontsize=12)
     plt.ylabel("Depth (m)", fontsize=12)
     plt.gca().invert_yaxis()
@@ -99,7 +100,7 @@ def plot_tl_2d(cfg: SimulationConfig, results):
     plt.grid(True, linestyle=":", alpha=0.4)
     plt.tight_layout()
 
-    fname = f"TL_2D_field_f{cfg.freq}Hz_nmod{cfg.nmod}_ztrans{cfg.z_transition}_betaval{cfg.beta_sediment_1}_20deg.png"
+    fname = f"TL_2D_field_f{cfg.freq}Hz_nmod{cfg.nmod}_ztrans{cfg.z_transition}_betaval{cfg.beta_sediment_1}_{cfg.angle_deg:.0f}deg.png"
     plt.savefig(fname, dpi=150, bbox_inches="tight")
     plt.show()
     print(f"2D TL field saved as: {fname}")
