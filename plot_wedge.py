@@ -1,10 +1,10 @@
 """
-Plot_wedge.py
+plot_wedge.py
 =============
-Visualisation des resultats de propagation calcules par `Propagation.py` :
-    - courbe TL(x) a la profondeur recepteur, comparee a une reference
-    - erreur absolue point a point
-    - champ TL 2D (x, z)
+Visualization of the propagation results computed by `Propagation.py`:
+    - TL(x) curve at the receiver depth, compared against a reference
+    - point-by-point absolute error
+    - 2D TL field (x, z)
 """
 
 import numpy as np
@@ -14,24 +14,21 @@ from scipy.interpolate import interp1d
 from config import SimulationConfig
 from Propagation import compute_propagation
 
-cfg = SimulationConfig()
-Hmax, N_totX, N_tot = cfg.Hmax, cfg.N_totX, cfg.N_tot
-freq, nmod, beta = cfg.freq, cfg.nmod, cfg.Deriv_step
-z_transition, beta_sediment_1 = cfg.z_transition, cfg.beta_sediment_1
-
 REF_FILE = "TL_SourceImg_20_deg.txt"
 
 
 def load_reference(path):
+    """Loads a reference TL(x) curve from a two-column text file (range in km, TL in dB)."""
     ref_data = np.loadtxt(path)
     x_ref = ref_data[:, 0] * 1000
     TL_ref = ref_data[:, 1]
     return x_ref, TL_ref
 
 
-def plot_tl_1d(results, x_ref, TL_ref):
-    """Courbe TL(x) + erreur absolue vs reference."""
+def plot_tl_1d(cfg: SimulationConfig, results, x_ref, TL_ref):
+    """TL(x) curve + point-by-point absolute error against the reference."""
     X_fin, TL = results["X_fin"], results["TL"]
+    deriv_step = cfg.Deriv_step  # finite-difference step factor (bathymetric derivative)
 
     TL_interp = interp1d(X_fin, TL, kind="linear", fill_value="extrapolate")(x_ref)
     err_abs = np.abs(TL_interp - TL_ref)
@@ -43,19 +40,19 @@ def plot_tl_1d(results, x_ref, TL_ref):
     ax = axes[0]
     ax.plot(X_fin, TL, label=f"Python RK4 (SAE={sum_err:.1f} dB)", linewidth=1.5, color="steelblue")
     ax.plot(x_ref, TL_ref, label="wedgea (reference)", linewidth=1.5, linestyle="--", color="tomato")
-    ax.set_xlim([0, 4000])
+    ax.set_xlim([cfg.X_0, cfg.X_fin])
     ax.set_ylim([-90, 0])
     ax.set_ylabel("TL (dB re 1 m)")
-    ax.set_title(f"TL — f={freq} Hz")
+    ax.set_title(f"TL — f={cfg.freq} Hz")
     ax.legend(loc="lower right")
     ax.grid(True, linestyle=":", alpha=0.6)
 
     param_text = (
-        f"nmod  = {nmod}\n"
-        f"beta  = {beta}\n"
-        f"N_tot = {N_tot}\n"
-        f"N_totX = {N_totX}\n"
-        f"Hmax  = {Hmax}"
+        f"nmod  = {cfg.nmod}\n"
+        f"deriv_step = {deriv_step}\n"
+        f"N_tot = {cfg.N_tot}\n"
+        f"N_totX = {cfg.N_totX}\n"
+        f"Hmax  = {cfg.Hmax}"
     )
     ax.text(0.98, 0.97, param_text, transform=ax.transAxes,
             fontsize=9, va="top", ha="right",
@@ -64,37 +61,37 @@ def plot_tl_1d(results, x_ref, TL_ref):
     ax2 = axes[1]
     ax2.plot(x_ref, err_abs, label=f"Python vs wedgea (MAE={mae:.4f} dB)",
              linewidth=1.2, color="steelblue")
-    ax2.set_xlim([0, 4000])
+    ax2.set_xlim([cfg.X_0, cfg.X_fin])
     ax2.set_xlabel("Range (m)")
-    ax2.set_ylabel("|erreur| (dB)")
-    ax2.set_title("Erreur absolue point a point vs wedgea")
+    ax2.set_ylabel("|error| (dB)")
+    ax2.set_title("Point-by-point absolute error vs wedgea")
     ax2.legend(loc="upper right")
     ax2.grid(True, linestyle=":", alpha=0.6)
 
     plt.tight_layout()
     fname = (
-        f"TL_f{freq}Hz_nmod{nmod}_beta{beta}_Ntot{N_tot}_NtotX{N_totX}"
-        f"_Hmax{Hmax}_betaval{beta_sediment_1}_ztrans{z_transition}_20deg.png"
+        f"TL_f{cfg.freq}Hz_nmod{cfg.nmod}_deriv{deriv_step}_Ntot{cfg.N_tot}_NtotX{cfg.N_totX}"
+        f"_Hmax{cfg.Hmax}_betaval{cfg.beta_sediment_1}_ztrans{cfg.z_transition}_20deg.png"
     )
     fig.savefig(fname, dpi=150, bbox_inches="tight")
     plt.show()
-    print(f"Figure sauvegardee : {fname}")
+    print(f"Figure saved: {fname}")
 
 
-def plot_tl_2d(results):
-    """Champ TL 2D (x, z)."""
+def plot_tl_2d(cfg: SimulationConfig, results):
+    """2D TL field (x, z)."""
     X_fin, TL_2d, Z_fine = results["X_fin"], results["TL_2d"], results["Z_fine"]
     X_grid = np.repeat(X_fin[:, np.newaxis], Z_fine.shape[1], axis=1)
 
     plt.figure(figsize=(14, 6))
     mesh = plt.pcolormesh(X_grid, Z_fine, TL_2d, cmap="jet", vmin=-60, vmax=0, shading="auto")
 
-    plt.title(f"Champ de Transmission Loss (TL) 2D — f = {freq} Hz", fontsize=14, fontweight="bold")
+    plt.title(f"Transmission Loss (TL) 2D field — f = {cfg.freq} Hz", fontsize=14, fontweight="bold")
     plt.xlabel("Distance / Range (m)", fontsize=12)
-    plt.ylabel("Profondeur (m)", fontsize=12)
+    plt.ylabel("Depth (m)", fontsize=12)
     plt.gca().invert_yaxis()
-    plt.xlim([0, 4000])
-    plt.ylim([Hmax, 0])
+    plt.xlim([cfg.X_0, cfg.X_fin])
+    plt.ylim([cfg.Hmax, 0])
 
     cbar = plt.colorbar(mesh, pad=0.01, aspect=25)
     cbar.set_label("TL (dB re 1 m)", fontsize=12)
@@ -102,15 +99,16 @@ def plot_tl_2d(results):
     plt.grid(True, linestyle=":", alpha=0.4)
     plt.tight_layout()
 
-    fname = f"TL_2D_champ_f{freq}Hz_nmod{nmod}_ztrans{z_transition}_betaval{beta_sediment_1}_20deg.png"
+    fname = f"TL_2D_field_f{cfg.freq}Hz_nmod{cfg.nmod}_ztrans{cfg.z_transition}_betaval{cfg.beta_sediment_1}_20deg.png"
     plt.savefig(fname, dpi=150, bbox_inches="tight")
     plt.show()
-    print(f"Champ TL 2D sauvegarde sous : {fname}")
+    print(f"2D TL field saved as: {fname}")
 
 
 if __name__ == "__main__":
-    results = compute_propagation()
+    cfg = SimulationConfig()
+    results = compute_propagation(cfg)
     x_ref, TL_ref = load_reference(REF_FILE)
 
-    plot_tl_1d(results, x_ref, TL_ref)
-    plot_tl_2d(results)
+    plot_tl_1d(cfg, results, x_ref, TL_ref)
+    plot_tl_2d(cfg, results)

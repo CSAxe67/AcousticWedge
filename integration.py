@@ -1,17 +1,35 @@
 """
 integration.py
-======================
-Coefficients d'integration piecewise (trapezes ponderes par la densite)
+===============
+Piecewise integration coefficients (density-weighted trapezoidal rule).
 """
 
 import numpy as np
 
 
 # ============================================================
-# INTEGRATION PIECEWISE (regle des trapezes, corrections d'interface)
+# PIECEWISE INTEGRATION (trapezoidal rule, interface corrections)
 # ============================================================
 def compute_piecwise_integral(i_int, M1, M2, dz):
-    """Integrale trapezoidale de M1 @ M2 avec correction a l'interface i_int."""
+    """
+    Trapezoidal integral of M1 @ M2 with a correction at the interface i_int.
+
+    Parameters
+    ----------
+    i_int : int
+        Index of the water/sediment interface.
+    M1 : np.ndarray, shape (n, N)
+        Left-hand side operand.
+    M2 : np.ndarray, shape (N, m)
+        Right-hand side operand.
+    dz : float
+        Vertical step of the mesh.
+
+    Returns
+    -------
+    np.ndarray, shape (n, m)
+        Trapezoidal integral of M1 @ M2.
+    """
     I = M1 @ M2
     I -= 0.5 * np.outer(M1[:, 0], M2[0, :])
     I -= 0.5 * np.outer(M1[:, -1], M2[-1, :])
@@ -21,7 +39,29 @@ def compute_piecwise_integral(i_int, M1, M2, dz):
 
 
 def compute_piecewise_scalarpdct(i_int, M1, M2, dz, rho_w, rho_s):
-    """Integrale trapezoidale ponderee par 1/rho (eau/sediment separes par i_int)."""
+    """
+    Trapezoidal integral weighted by 1/rho (water/sediment split at i_int).
+
+    Parameters
+    ----------
+    i_int : int
+        Index of the water/sediment interface.
+    M1 : np.ndarray, shape (n, N)
+        Left-hand side operand.
+    M2 : np.ndarray, shape (N, m)
+        Right-hand side operand.
+    dz : float
+        Vertical step of the mesh.
+    rho_w : float
+        Density in the water column.
+    rho_s : float
+        Density in the sediment.
+
+    Returns
+    -------
+    np.ndarray, shape (n, m)
+        Density-weighted trapezoidal integral of M1 @ M2.
+    """
     N = M1.shape[1]
     inv_rho = np.empty(N)
     inv_rho[:i_int] = 1.0 / rho_w
@@ -34,5 +74,3 @@ def compute_piecewise_scalarpdct(i_int, M1, M2, dz, rho_w, rho_s):
     I -= 0.5 * inv_rho[i_int] * np.outer(M1[:, i_int], M2[i_int, :])
 
     return dz * I
-
-
