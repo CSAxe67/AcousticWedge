@@ -13,6 +13,7 @@ from scipy.interpolate import interp1d
 
 from config import SimulationConfig
 from Propagation import compute_propagation
+from Propagation_Vcoupling import compute_propagation_Vcoupling
 
 REF_FILE = "TL_SourceImg_20_deg.txt"
 
