@@ -8,7 +8,6 @@ Inter-mode coupling coefficients:
 """
 
 import numpy as np
-
 from config import SimulationConfig
 
 

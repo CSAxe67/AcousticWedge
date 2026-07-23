@@ -15,14 +15,14 @@ from config import SimulationConfig
 from Propagation import compute_propagation
 from Propagation_Vcoupling import compute_propagation_Vcoupling
 
-REF_FILE = "TL_SourceImg_20_deg.txt"
+REF_FILE = "wedgea.TL"
 
 
 def load_reference(path):
     """Loads a reference TL(x) curve from a two-column text file (range in km, TL in dB)."""
     ref_data = np.loadtxt(path)
     x_ref = ref_data[:, 0] * 1000
-    TL_ref = ref_data[:, 1]
+    TL_ref = -ref_data[:, 1]
     return x_ref, TL_ref
 
 
@@ -110,6 +110,7 @@ def plot_tl_2d(cfg: SimulationConfig, results):
 if __name__ == "__main__":
     cfg = SimulationConfig()
     results = compute_propagation(cfg)
+    # results = compute_propagation_Vcoupling(cfg)
     x_ref, TL_ref = load_reference(REF_FILE)
 
     plot_tl_1d(cfg, results, x_ref, TL_ref)

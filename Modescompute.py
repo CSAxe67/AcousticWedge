@@ -3,7 +3,7 @@ Modescompute.py
 ================
 Eigenmode and wavenumber (real part) computation via a finite-difference
 method, with Richardson extrapolation over three vertical discretization
-steps.
+steps (only when compute_der is False).
 
 Also provides:
     - the addition of the imaginary part (attenuation) to the wavenumbers
@@ -68,47 +68,77 @@ def _process_one(i, DZ_W, N_w, N_tot, c_w, c_s, p_w, p_s, nmod, omega):
 
 
 # ============================================================
-# RICHARDSON EXTRAPOLATION OVER 3 DISCRETIZATION STEPS
+# RESOLUTION WITH OR WITHOUT RICHARDSON EXTRAPOLATION
 # ============================================================
 def _run_richardson(cfg: SimulationConfig, process_fn, compute_der=False):
     """
-    Logic shared by the symmetrized variant (`Modes_compute`) and the
-    non-symmetrized one (`Modescompute_Nonsym.Modes_compute_nonsym`):
-    building the mesh at the 3 resolutions in `cfg.R_factor`, solving the
-    eigenvalue problem in parallel via `process_fn`, then applying
-    Richardson extrapolation (2nd order in dz) to the wavenumbers.
+    Computes mode shapes and wavenumbers.
+    
+    - If `compute_der=True`: Computes modes ONLY on the finest mesh (R_factor[2])
+      without Richardson extrapolation.
+    - If `compute_der=False`: Builds mesh at 3 resolutions (cfg.R_factor) and applies 
+      Richardson extrapolation (2nd order in dz) on wavenumbers.
 
     Parameters
     ----------
     cfg : SimulationConfig
-        Global configuration (cfg.Deriv_step, cfg.R_factor, cfg.nmod, cfg.omega).
+        Global configuration.
     process_fn : callable
-        Function solving the eigenvalue problem at a single position
-        (same signature as `_process_one` / `_process_one_nonsym`).
+        Function solving the eigenvalue problem at a single position.
     compute_der : bool
-        If True, computes the perturbed modes/eigenvalues (for
-        `compute_coupling_terms_1`), at `Hmax` reduced by `beta*dz`.
+        If True, calculates on the finest mesh without Richardson extrapolation.
 
     Returns
     -------
-    extrapolated_roots : list of np.ndarray (nmod,)
-        Extrapolated real wavenumbers, one array per position x.
+    roots : list of np.ndarray (nmod,)
+        Real wavenumbers (extrapolated if compute_der=False, direct if compute_der=True).
     all_modes : list of np.ndarray (N_tot, nmod)
-        Modes at the finest mesh (R_factor[2]), one array per position x.
+        Modes at the finest mesh (R_factor[2]).
     """
     R_factor = np.asarray(cfg.R_factor, dtype=float)
     if R_factor.shape != (3,):
         raise ValueError("cfg.R_factor must contain exactly 3 values (coarse -> fine).")
 
-    nmod = cfg.nmod
-    omega = cfg.omega
+    # ============================================================
+    # CAS 1 : compute_der == True (Maillage fin unique, SANS Richardson)
+    # ============================================================
+    if compute_der:
+        r_finest = R_factor[2]  # On prend le maillage le plus fin
+        mesh_fine = build_medium_mesh(cfg, r_finest, compute_derivative=True)
+        n_pos = len(mesh_fine.Z)
 
-    mesh0 = build_medium_mesh(cfg, R_factor[0], compute_der)
-    mesh1 = build_medium_mesh(cfg, R_factor[1], compute_der)
-    mesh2 = build_medium_mesh(cfg, R_factor[2], compute_der)
+        print(f"Direct computation (no Richardson) over {n_pos} positions on finest mesh...")
+
+        worker = partial(
+            process_fn,
+            DZ_W=mesh_fine.dz,
+            N_w=mesh_fine.N_w,
+            N_tot=mesh_fine.N_tot,
+            c_w=cfg.c_w,
+            c_s=cfg.c_s,
+            p_w=cfg.p_w,
+            p_s=cfg.p_s,
+            nmod=cfg.nmod,
+            omega=cfg.omega,
+        )
+
+        with Pool(cpu_count()) as pool:
+            results = pool.map(worker, range(n_pos))
+
+        direct_roots = [r[0] for r in results]
+        all_modes = [r[1] for r in results]
+
+        return direct_roots, all_modes
+
+    # ============================================================
+    # CAS 2 : compute_der == False (3 maillages + Extrapolation Richardson)
+    # ============================================================
+    mesh0 = build_medium_mesh(cfg, R_factor[0], compute_derivative=False)
+    mesh1 = build_medium_mesh(cfg, R_factor[1], compute_derivative=False)
+    mesh2 = build_medium_mesh(cfg, R_factor[2], compute_derivative=False)
 
     n_pos = len(mesh0.Z)
-    print(f"Parallel computation over {n_pos} positions...")
+    print(f"Parallel computation with Richardson extrapolation over {n_pos} positions...")
 
     worker = partial(
         process_fn,
@@ -147,8 +177,6 @@ def _run_richardson(cfg: SimulationConfig, process_fn, compute_der=False):
         omega=cfg.omega,
     )
 
-    # A single process pool reused across the 3 resolutions
-    # (avoids creating/destroying 3 successive process pools)
     with Pool(cpu_count()) as pool:
         results = pool.map(worker, range(n_pos))
         results_1 = pool.map(worker_1, range(len(mesh1.Z)))
@@ -184,26 +212,6 @@ def Modes_compute(cfg: SimulationConfig, compute_der=False):
 def compute_imaginary_wavenumbers(cfg: SimulationConfig, all_roots, all_phis, DZ_W, N_w):
     """
     Adds the imaginary part (attenuation) to the real wavenumbers.
-
-    Parameters
-    ----------
-    cfg : SimulationConfig
-        Global configuration. Uses cfg.p_w, cfg.p_s, cfg.c_w, cfg.c_s,
-        cfg.omega, cfg.eta, cfg.beta_water, cfg.beta_sediment_1,
-        cfg.beta_sediment_2, cfg.z_transition.
-    all_roots : list of np.ndarray, each (nmod,)
-        Real wavenumbers at each position x.
-    all_phis : list of np.ndarray, each (N_tot, nmod)
-        Normalized modes at each position x.
-    DZ_W : list of float
-        Vertical mesh step at each position x.
-    N_w : list of int
-        Water/sediment interface index at each position x.
-
-    Returns
-    -------
-    list of np.ndarray of complex, each (nmod,)
-        Complex wavenumbers (real part unchanged, imaginary part = attenuation).
     """
     if not (len(all_roots) == len(all_phis) == len(DZ_W) == len(N_w)):
         raise ValueError(
@@ -259,20 +267,6 @@ def compute_mode_derivatives_z(all_modes, DZ_W, N_w):
     Derivative dphi/dz via centered finite differences, with special
     handling of the water/sediment interface (average of the left/right
     derivatives).
-
-    Parameters
-    ----------
-    all_modes : list of np.ndarray, each (N_tot, nmod)
-        Normalized modes at each position x.
-    DZ_W : list of float
-        Vertical mesh step at each position x.
-    N_w : list of int
-        Water/sediment interface index at each position x.
-
-    Returns
-    -------
-    list of np.ndarray, each (N_tot, nmod)
-        Vertical derivative dphi/dz at each position x.
     """
     if not (len(all_modes) == len(DZ_W) == len(N_w)):
         raise ValueError(

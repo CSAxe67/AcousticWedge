@@ -74,8 +74,7 @@ def compute_propagation(cfg: SimulationConfig):
     # --- Attenuation-induced coupling ---
     T = attenuation_terms(cfg, all_phis, DZ_W, N_w)
 
-    # --- Imaginary part of the wavenumbers (attenuation) ---
-    all_roots = compute_imaginary_wavenumbers(cfg, all_roots, all_phis, DZ_W, N_w)
+   
 
     # --- Bathymetric coupling (bottom slope) ---
     all_dmodes = compute_mode_derivatives_z(all_phis, DZ_W, N_w)
@@ -138,7 +137,8 @@ def compute_propagation(cfg: SimulationConfig):
 
     # --- Pressure field / TL at zr (1D) ---
     phizrx = interp_phi(X_fine)[:, iz, :]
-    P = np.sum(Ajx * phizrx, axis=1) / np.sqrt(X_fine)   # 3D field
+    # P = np.sum(Ajx * phizrx, axis=1) / np.sqrt(X_fine)   # 3D field
+    P = np.sum(Ajx * phizrx, axis=1)   # 2D field
 
     H0 = hankel1(0, cfg.omega / cfg.c_w)
     TL = 20 * np.log10(np.abs(4 * P / H0)) - 2.5

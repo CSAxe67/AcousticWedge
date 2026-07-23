@@ -31,14 +31,16 @@ from coupling import compute_coupling_terms_1
 # ============================================================
 # RIGHT-HAND SIDE OF THE COUPLED SYSTEM (V formulation)
 # ============================================================
-def _coupled_modes_rhs(A, kj, dkj, Vjl, Tjl, theta):
-    """Right-hand side dA/dx, V-coefficient formulation (compute_coupling_terms_1)."""
+def _coupled_modes_rhs(A, kj, dkj, Cjl, Tjl, theta):
+    """Right-hand side dA/dx for the coupled modal amplitudes, at fixed x."""
     delta_theta = -theta[:, None] + theta[None, :]
-    coupling = (Vjl - Vjl.T + Tjl) * np.exp(1j * delta_theta)
+    V_term = (Cjl - Cjl.T) * np.exp(1j * delta_theta)
+    T_term = Tjl * np.exp(1j * delta_theta)
 
     return (
         - 0.5 * (dkj / kj) * A
-        + 0.5 * (coupling @ (kj * A)) / kj
+        - 0.5 * (V_term @ (kj * A)) / kj       # K^{-1} V K B
+        - (T_term @ A) / kj                     # K^{-1} T B
     )
 
 
@@ -86,8 +88,7 @@ def compute_propagation_Vcoupling(cfg: SimulationConfig):
     # --- Attenuation-induced coupling ---
     T = attenuation_terms(cfg, all_phis, DZ_W, N_w)
 
-    # --- Imaginary part of the wavenumbers (attenuation) ---
-    all_roots = compute_imaginary_wavenumbers(cfg, all_roots, all_phis, DZ_W, N_w)
+
 
     kjx_array = np.array(all_roots)     # (N_pos, nmod)
     phis_array = np.array(all_phis)     # (N_pos, N_tot, nmod)
@@ -143,7 +144,8 @@ def compute_propagation_Vcoupling(cfg: SimulationConfig):
 
     # --- Pressure field / TL at zr (1D) ---
     phizrx = interp_phi(X_fine)[:, iz, :]
-    P = np.sum(Ajx * phizrx, axis=1) / np.sqrt(X_fine)
+    # P = np.sum(Ajx * phizrx, axis=1) / np.sqrt(X_fine)   # 3D field
+    P = np.sum(Ajx * phizrx, axis=1)   # 2D field
 
     H0 = hankel1(0, cfg.omega / cfg.c_w)
     TL = 20 * np.log10(np.abs(4 * P / H0)) - 2.5

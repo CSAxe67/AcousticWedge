@@ -46,6 +46,7 @@ def compute_coupling_terms_1(cfg: SimulationConfig, all_phis, all_phis_der, DZ_W
 
     beta = cfg.Deriv_step
     rho_w, rho_s = cfg.p_w, cfg.p_s
+    dhdx = cfg.dh_dx
 
     all_Cjl = []
 
@@ -62,7 +63,7 @@ def compute_coupling_terms_1(cfg: SimulationConfig, all_phis, all_phis_der, DZ_W
         M2 = phi0        # (N_tot, nmod)
 
         Cjl = compute_piecewise_scalarpdct(nw, M1, M2, dz, rho_w, rho_s)
-        all_Cjl.append(Cjl)
+        all_Cjl.append(-Cjl*dhdx)
 
     return all_Cjl
 
