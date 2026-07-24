@@ -15,14 +15,14 @@ from config import SimulationConfig
 from Propagation import compute_propagation
 from Propagation_Vcoupling import compute_propagation_Vcoupling
 
-REF_FILE = "wedgea.TL"
+REF_FILE = "TL_SourceImg_20_deg.txt"
 
 
 def load_reference(path):
     """Loads a reference TL(x) curve from a two-column text file (range in km, TL in dB)."""
     ref_data = np.loadtxt(path)
     x_ref = ref_data[:, 0] * 1000
-    TL_ref = -ref_data[:, 1]
+    TL_ref = ref_data[:, 1]
     return x_ref, TL_ref
 
 
@@ -42,7 +42,7 @@ def plot_tl_1d(cfg: SimulationConfig, results, x_ref, TL_ref):
     ax.plot(X_fin, TL, label=f"Python RK4 (SAE={sum_err:.1f} dB)", linewidth=1.5, color="steelblue")
     ax.plot(x_ref, TL_ref, label="wedgea (reference)", linewidth=1.5, linestyle="--", color="tomato")
     ax.set_xlim([cfg.X_0, cfg.X_fin])
-    ax.set_ylim([-90, 0])
+    ax.set_ylim([-120, 0])
     ax.set_ylabel("TL (dB re 1 m)")
     ax.set_title(f"TL — f={cfg.freq} Hz, wedge angle={cfg.angle_deg:.1f} deg")
     ax.legend(loc="lower right")

@@ -20,6 +20,7 @@ from attenuation import attenuation_terms
 from coupling import compute_couplingterms_2
 
 
+
 def _coupled_modes_rhs(A, kj, dkj, Cjl, Tjl, theta):
     """Right-hand side dA/dx for the coupled modal amplitudes, at fixed x."""
     delta_theta = -theta[:, None] + theta[None, :]
@@ -80,6 +81,9 @@ def compute_propagation(cfg: SimulationConfig):
     all_dmodes = compute_mode_derivatives_z(all_phis, DZ_W, N_w)
     all_C1ij = compute_couplingterms_2(cfg, all_phis, all_dmodes, all_roots, N_w)
 
+
+    
+
     kjx_array = np.array(all_roots)     # (N_pos, nmod)
     phis_array = np.array(all_phis)     # (N_pos, N_tot, nmod)
     Cjl_array = np.array(all_C1ij)     # (N_pos, nmod, nmod)
@@ -137,8 +141,8 @@ def compute_propagation(cfg: SimulationConfig):
 
     # --- Pressure field / TL at zr (1D) ---
     phizrx = interp_phi(X_fine)[:, iz, :]
-    # P = np.sum(Ajx * phizrx, axis=1) / np.sqrt(X_fine)   # 3D field
-    P = np.sum(Ajx * phizrx, axis=1)   # 2D field
+    P = np.sum(Ajx * phizrx, axis=1) / np.sqrt(X_fine)   # 3D field
+    # P = np.sum(Ajx * phizrx, axis=1)   # 2D field
 
     H0 = hankel1(0, cfg.omega / cfg.c_w)
     TL = 20 * np.log10(np.abs(4 * P / H0)) - 2.5

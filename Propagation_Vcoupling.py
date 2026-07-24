@@ -23,9 +23,10 @@ from scipy.special import hankel1
 
 from config import SimulationConfig
 from geometry import build_medium_mesh
-from Modescompute import Modes_compute, compute_imaginary_wavenumbers
+from Modescompute import Modes_compute, compute_imaginary_wavenumbers, compute_mode_derivatives_z
 from attenuation import attenuation_terms
 from coupling import compute_coupling_terms_1
+
 
 
 # ============================================================
@@ -83,7 +84,10 @@ def compute_propagation_Vcoupling(cfg: SimulationConfig):
     all_roots_der, all_phis_der = Modes_compute(cfg, compute_der=True)
 
     # --- Bathymetric coupling (finite-difference method) ---
+    # --- Bathymetric coupling (bottom slope) ---
+    all_dmodes = compute_mode_derivatives_z(all_phis, DZ_W, N_w)
     V = compute_coupling_terms_1(cfg, all_phis, all_phis_der, DZ_W, N_w)
+   
 
     # --- Attenuation-induced coupling ---
     T = attenuation_terms(cfg, all_phis, DZ_W, N_w)

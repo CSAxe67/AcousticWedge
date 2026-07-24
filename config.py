@@ -9,11 +9,11 @@ class SimulationConfig:
     # --- Wedge geometry ---
     X_0: float = 1.0
     X_fin: float = 4000.0
-    D_0: float = 200
+    D_0: float = 1455.88
     D_fin: float = 0.0
-    N_tot: int = 1500
-    N_totX: int = 50
-    Hmax: float = 1500
+    N_tot: int = 6000
+    N_totX: int = 400
+    Hmax: float = 6000
     N_Grilles_fines: int = 4000
 
     # --- Medium (sound speeds, densities) ---
@@ -24,7 +24,7 @@ class SimulationConfig:
 
     # --- Physical and numerical parameters ---
     freq: float = 25.0
-    alpha: float = np.pi / 2.2
+    alpha: float = np.pi / 2.2 #aberture angle
     Deriv_step: int = 5
     # field(default_factory=...) is used for mutable defaults (lists)
     R_factor: list[float] = field(default_factory=lambda: [1.0, 1.5, 2.0])
@@ -33,11 +33,14 @@ class SimulationConfig:
     beta_sediment_1: float = 0.5
     beta_sediment_2: float = 0.5
     z_transition: float = 1000.0
-    nmod: int = 42
+    
 
     # --- Source / receiver position ---
     zr: float = 30.0
-    zs: float = 100.0
+    zs: float = 1000.0
+
+    
+
 
     # --- Dynamically computed properties ---
     @property
@@ -68,3 +71,7 @@ class SimulationConfig:
         Corresponds to tan(angle) in radians: (D_0 - D_fin) / (X_fin - X_0).
         """
         return (self.D_0 - self.D_fin) / (self.X_fin - self.X_0)
+    @property
+    def nmod(self) ->int:
+        """Estimates the number of modes based on the configuration."""
+        return int((self.Hmax / np.pi) * np.sqrt((self.omega / self.c_s) ** 2 - np.cos(self.alpha) * (self.omega / self.c_w) ** 2))+3
