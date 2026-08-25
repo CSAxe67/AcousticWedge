@@ -98,18 +98,4 @@ All parameters live in `config.SimulationConfig`. Key groups:
 `omega` and `eta` are derived automatically from `freq` and are
 exposed as read-only properties.
 
-## Known limitations / open items
 
-- `Propagation_Vcoupling.py` still references the legacy parameter
-  layout and has not been migrated to `SimulationConfig` / `geometry.Mesh`.
-- `compute_imaginary_wavenumbers` divides by the real wavenumber
-  `kj_re`; modes with `kj_re` very close to zero (near cutoff) can
-  produce `inf`/`nan` -- no safeguard is currently in place.
-- No automated test suite yet; the symmetrized (`Modescompute.py`) and
-  non-symmetrized (`Modescompute_Nonsym.py`) eigenvalue solvers agree
-  to numerical precision (~1e-14) on the cases checked so far.
-
-## Reference
-
-The `C1ij` bathymetric coupling formula follows reference [2], Eq. 18-20
-(full citation to be added).
