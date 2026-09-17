@@ -164,11 +164,11 @@ P = np.sum(Ajx * phizrx, axis=1)   # 2D field
 
 **1D TL vs reference (`wedgea`) + point-by-point error:**
 
-![TL 1D vs wedgea](figures/TL_f25_0Hz_nmod44_deriv4_Ntot1500_NtotX50_Hmax1500_betaval0_5_ztrans4000_0_3deg.png)
+![TL 1D vs wedgea](TL_f25_0Hz_nmod44_deriv4_Ntot1500_NtotX50_Hmax1500_betaval0_5_ztrans4000_0_3deg.png)
 
 **2D TL field:**
 
-![TL 2D field](figures/TL_2D_field_f25_0Hz_nmod44_ztrans4000_0_betaval0_5_3deg.png)
+![TL 2D field](TL_2D_field_f25_0Hz_nmod44_ztrans4000_0_betaval0_5_3deg.png)
 
 With this configuration, the mean absolute error against the
 `wedgea` reference is ~0.41 dB over most of the range, with larger
