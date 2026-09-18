@@ -20,6 +20,49 @@ _ILL_CONDITIONED_TOL = 1e-6
 
 Branch = Literal["water", "bottom"]
 
+# =====================================================================
+# 0. Helper method for root finding
+# =====================================================================
+
+
+def _scan_interval_for_roots(
+    G, h, a, b, phase_fn, points_per_half_period, min_pts, validate_tol
+):
+    """
+    Find all roots of the pole-free, smooth function k -> G(k, h) on the
+    *open* interval (a, b), sampling with a point count driven by the actual
+    phase excursion of `phase_fn` across (a, b) rather than a fixed budget --
+    see the docstring of `Waveguide.find_wavenumbers` for why this matters.
+    Used for every sub-interval between consecutive hard breakpoints (band
+    edges and, for the bottom branch, the analytic cot poles).
+    """
+    span = b - a
+    eps = max(span * 1e-9, 1e-14)
+    a_in, b_in = a + eps, b - eps
+    if b_in <= a_in:
+        a_in, b_in = a, b  # degenerate (extremely narrow) interval: use as-is
+
+    dphase = abs(phase_fn(b_in) - phase_fn(a_in))
+    npts = max(min_pts, int(np.ceil(points_per_half_period * dphase / np.pi)) + 2)
+
+    ks = np.linspace(a_in, b_in, npts)
+    vals = G(ks, h)
+
+    roots = []
+    for i in range(npts - 1):
+        v0, v1 = vals[i], vals[i + 1]
+        if not (np.isfinite(v0) and np.isfinite(v1)):
+            continue
+        if v0 == 0.0:
+            roots.append(ks[i])
+            continue
+        if v0 * v1 < 0.0:
+            r = brentq(G, ks[i], ks[i + 1], args=(h,))
+            if abs(G(r, h)) < validate_tol:
+                roots.append(r)
+            # else: sign flip came from a pole, not a genuine zero -- discard.
+    return roots
+
 
 # =====================================================================
 # 1. Waveguide: geometry / dispersion relations / vertical wavenumbers
@@ -118,59 +161,76 @@ class Waveguide:
         else:
             return -self.dGb_dh(k, h) / self.dGb_dk(k, h)
 
+    def bottom_cot_poles(self, h: float, margin: float = 1e-4) -> np.ndarray:
+        """Compute the exact locations of the poles of the Dispersion relation for bottom bourne modes
+
+        Args:
+            h (float): interface position
+            margin (float, optional): _description_. Defaults to 1e-4.
+
+        Raises:
+            ValueError: _description_
+
+        Returns:
+            np.ndarray: a collection of poles
+        """
+        D = self.H - h
+        kmax = self.omega / self.c2 * (1 - margin)
+        n_max = int(np.floor(self.omega / self.c2 * D / np.pi - 1.0e-9))
+        poles = []
+        for n in range(1, n_max + 1):
+            ksq = (self.omega / self.c2) ** 2 - (n * np.pi / D) ** 2
+            if ksq <= 0:
+                break
+            k = np.sqrt(ksq)
+            if 0 < k < kmax:
+                poles.append(k)
+        return np.array(sorted(poles))
+
     # ---- root finding: k_j(h) for a given branch -----------------------
     def find_wavenumbers(
         self,
         h: float,
         branch: Branch,
-        n: int = 4000,
+        points_per_half_period: int = 12,
+        min_points_per_interval: int = 24,
         margin: float = 1e-4,
         validate_tol: float = 1e-6,
     ) -> np.ndarray:
-        """
-        Return all roots k_j of G_branch(k, h) = 0 lying in the physical
-        band for that branch, sorted in increasing order:
-
-            water-borne : omega/c2 < k < omega/c1   (kappa1, gamma2 real)
-            bottom-borne: 0        < k < omega/c2   (kappa1, kappa2   real)
-
-        A dense scan + sign-change bracketing + brentq is used; `n`
-        controls the scan resolution (increase if closely spaced modes
-        are missed) and `margin` keeps the search away from the
-        endpoints, where the dispersion function has a removable
-        singularity (cot/coth blow up as the layer-2 wavenumber -> 0).
-
-        G_branch(k, h) also has *poles* in the interior of the search band
-        (coth/cot blow up whenever sinh(gamma2*D) or sin(kappa2*D) vanishes for
-        the trial k), and a naive sign-change scan cannot tell a genuine
-        zero-crossing from a pole crossing -- both flip the sign of the
-        sampled values. Every bracketed candidate is therefore validated
-        by checking that G actually vanishes there (|G(root,h)| < validate_tol);
-        candidates that converge to a pole instead (where G stays large) are
-        discarded.
-        """
         if branch == "water":
             kmin = self.omega / self.c2 * (1 + margin)
             kmax = self.omega / self.c1 * (1 - margin)
             G = self.Gw
+            breakpoints = np.array([kmin, kmax])
         elif branch == "bottom":
             kmin = self.omega / self.c2 * margin
             kmax = self.omega / self.c2 * (1 - margin)
             G = self.Gb
+            poles = self.bottom_cot_poles(h, margin=margin)
+            breakpoints = np.concatenate(([kmin], poles, [kmax]))
         else:
             raise ValueError("branch must be 'water' or 'bottom'")
 
-        ks = np.linspace(kmin, kmax, n)
-        vals = np.array([G(k, h) for k in ks])
+        phase = (
+            lambda k: self.kappa1(k) * h
+        )  # shared oscillatory driver (cos/sin(kappa h))
+
         roots = []
-        for i in range(len(ks) - 1):
-            a, b = vals[i], vals[i + 1]
-            if np.isfinite(a) and np.isfinite(b) and a * b < 0:
-                root = brentq(G, ks[i], ks[i + 1], args=(h,))
-                if abs(G(root, h)) < validate_tol:
-                    roots.append(root)
-                # else: sign flip came from a pole (coth/cot blow-up), not a
-                # genuine zero of G -- silently discarded.
+        for a, b in zip(breakpoints[:-1], breakpoints[1:]):
+            if b <= a:
+                continue
+            roots.extend(
+                _scan_interval_for_roots(
+                    G,
+                    h,
+                    a,
+                    b,
+                    phase,
+                    points_per_half_period,
+                    min_points_per_interval,
+                    validate_tol,
+                )
+            )
         return np.array(sorted(roots))
 
     # ---- normalization integrals N^2 = (phi_j, phi_j) -------------------
@@ -216,6 +276,37 @@ class Waveguide:
             self.phi_water_raw(z, k, h)
             if branch == "water"
             else self.phi_bottom_raw(z, k, h)
+        )
+
+    def dphi_bottom_raw(self, z, k, h):
+        z = np.atleast_1d(np.asarray(z, dtype=float))
+        D = self.H - h
+        kappa1, kappa2 = self.kappa1(k), self.kappa2(k)
+        C = np.sin(kappa1 * h) / np.sin(kappa2 * D)
+        out = np.where(
+            z < h,
+            kappa1 * np.cos(kappa1 * z),
+            C * kappa2 * np.cos(kappa2 * (z - self.H)),
+        )
+        return out
+
+    def dphi_water_raw(self, z, k, h):
+        z = np.atleast_1d(np.asarray(z, dtype=float))
+        D = self.H - h
+        kappa1, gamma2 = self.kappa1(k), self.gamma2(k)
+        A = np.sin(kappa1 * h) / np.sinh(gamma2 * D)
+        out = np.where(
+            z < h,
+            kappa1 * np.cos(kappa1 * z),
+            A * gamma2 * np.cosh(gamma2 * (z - self.H)),
+        )
+        return out
+
+    def dphi_raw(self, z, k, h, branch: Branch):
+        return (
+            self.dphi_water_raw(z, k, h)
+            if branch == "water"
+            else self.dphi_bottom_raw(z, k, h)
         )
 
     def rho_of(self, z, h):
@@ -314,3 +405,6 @@ class Mode:
     # ---- convenience: evaluate the *normalized* mode shape --------------
     def phi(self, z):
         return self.wg.phi_raw(z, self.k, self.h, self.branch) / self.N
+
+    def dphi(self, z):
+        return self.wg.dphi_raw(z, self.k, self.h, self.branch) / self.N
