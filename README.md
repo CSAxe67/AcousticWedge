@@ -45,6 +45,8 @@ amplitudes with an RK4 scheme, and reconstructs the Transmission Loss
 | `coupling.py` | Bathymetric coupling matrices: `V_jl` (finite difference on beta) and `C1ij` (analytical, at the interface). |
 | `Propagation.py` | Main solver: assembles modes + coupling terms, runs the RK4 range integration, returns the TL field (1D and 2D). Uses the `C1ij` coupling formulation. |
 | `Propagation_Vcoupling.py` | Alternative solver using the `V_jl` coupling formulation. **Not yet migrated to the current `config`/`geometry` architecture — do not use as-is.** |
+| `pekeris.py` | Classes for the symbolically computed solutions in the truncated Pekeris waveguide |
+| `pekeris_symb.py` | Functions to obtain the symbolically computed modes of the truncated Pekeris waveguide. From a set of modes obtained by `get_modes`, the coupling coefficients can be computed using the `coupling_matrix` `(V_jl)` and `coupling_matrix_T` `(T_jl)` |
 | `plot_wedge.py` | Plots TL(x) against a reference curve (point-by-point error) and the 2D TL field. |
 
 ## Installation
