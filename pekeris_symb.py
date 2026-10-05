@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import warnings
 from typing import List, Literal, Optional, Tuple
+from operator import attrgetter
 
 import numpy as np
 from scipy.optimize import brentq
@@ -45,19 +46,23 @@ from scipy.integrate import quad
 from pekeris import Waveguide, Mode, Branch
 
 
-def get_modes(
-    wg: Waveguide,
-    h: float,
-    branch: Branch,
-    points_per_half_period: int = 12,
-    min_points_per_interval: int = 24,
-    margin: float = 1e-4,
-) -> List[Mode]:
-    """Find all wavenumbers k_j(h) for `branch` and package them as Modes."""
-    ks = wg.find_wavenumbers(
-        h, branch, points_per_half_period, min_points_per_interval, margin=margin
-    )
+def get_modes_pruefer(wg: Waveguide, h: float, branch: Branch) -> List[Mode]:
+    ks = wg.find_wavenumbers_pruefer(h, branch)
     return [Mode(wg, branch, h, k, index=i) for i, k in enumerate(ks)]
+
+
+def get_all_modes(wg: Waveguide, h: List[float], nmod: Optional[int] = None):
+    all_modes = [
+        get_modes_pruefer(wg, hi, "water") + get_modes_pruefer(wg, hi, "bottom")
+        for hi in h
+    ]
+    modes = [
+        sorted(mode_set, key=attrgetter("k"), reverse=True)[:nmod]
+        for mode_set in all_modes
+    ]
+    return modes
+
+
 
 
 # =====================================================================
@@ -345,7 +350,8 @@ def coupling_coefficient_T(
     if j.wg is not l.wg or j.h != l.h:
         raise ValueError("modes j and l must share the same Waveguide and depth h")
     if not (j.h <= h_t <= j.wg.H):
-        raise ValueError("h_t must lie in [h, H]")
+        # set transition to H if outside the domain
+        h_t = j.wg.H
 
     wg = j.wg
     D = j.D  # H - h
@@ -390,6 +396,18 @@ def coupling_matrix_T(
         for q, l in enumerate(modes):
             T[p, q] = coupling_coefficient_T(j, l, h_t, f1, f2, eta)
     return T
+
+
+def coupling_matrix_from_k(wg: Waveguide, ks: List[float], h: float) -> np.ndarray:
+    kw = [k for k in ks if k > wg.omega / wg.c2]
+    kb = [k for k in ks if k < wg.omega / wg.c2]
+    modes_w = [Mode(wg, "water", h, k, index=i) for i, k in enumerate(kw)]
+    modes_b = [
+        Mode(wg, "bottom", h, k, index=i + len(modes_w)) for i, k in enumerate(kb)
+    ]
+
+    modes = modes_w + modes_b
+    return coupling_matrix(modes)
 
 
 # =====================================================================
@@ -440,7 +458,9 @@ def plot_dispersion(
     ax.plot(ks, vals, lw=1.2)
     ax.axhline(0, color="k", lw=0.7)
 
-    roots = wg.find_wavenumbers(h, branch, n=n, margin=margin)
+    roots = wg.find_wavenumbers(
+        h, branch, points_per_half_period=64, min_points_per_interval=128, margin=margin
+    )
     ax.plot(
         roots, np.zeros_like(roots), "o", color="crimson", zorder=5, label="$k_j$ roots"
     )
@@ -498,7 +518,13 @@ def plot_modes(
 
 
 def plot_coupling_matrix(
-    V: np.ndarray, labels_l=None, labels_j=None, ax=None, cmap: str = "RdBu_r"
+    V: np.ndarray,
+    labels_l=None,
+    labels_j=None,
+    ax=None,
+    cmap: str = "RdBu_r",
+    title=None,
+    vmax=None,
 ):
     """Heat-map visualization of a coupling-coefficient matrix V_lj."""
     import matplotlib.pyplot as plt
@@ -506,7 +532,7 @@ def plot_coupling_matrix(
     if ax is None:
         _, ax = plt.subplots(figsize=(5, 4))
 
-    vmax = np.nanmax(np.abs(V)) if np.isfinite(V).any() else 1.0
+    vmax = vmax or (np.nanmax(np.abs(V)) if np.isfinite(V).any() else 1.0)
     im = ax.imshow(V, cmap=cmap, vmin=-vmax, vmax=vmax, aspect="auto")
     plt.colorbar(im, ax=ax, label="$V_{lj}$")
 
@@ -519,7 +545,7 @@ def plot_coupling_matrix(
 
     ax.set_xlabel("mode $j$")
     ax.set_ylabel("mode $l$")
-    ax.set_title("Coupling coefficients $V_{lj}$")
+    ax.set_title(title or "Coupling coefficients $V_{lj}$")
     return ax
 
 
@@ -537,52 +563,57 @@ def main():
     # the raw (un-normalized) amplitude C or A blow up even though the
     # normalized mode and V_lj stay perfectly finite -- see the
     # `_ILL_CONDITIONED_TOL` warning in Mode.compute().
-    wg = Waveguide(
-        c1=1500.0, c2=1800.0, rho1=1.0, rho2=1.5, H=400, omega=2 * np.pi * 50.0
-    )  # 80 Hz source
-    h = 100.0
-
-    water_modes = get_modes(wg, h, "water")
-    bottom_modes = get_modes(wg, h, "bottom")
-    print(
-        f"Found {len(water_modes)} water-borne modes, "
-        f"{len(bottom_modes)} bottom-borne modes at h = {h} m"
+    import config_test as config
+    from scipy.linalg import norm
+    from geometry import build_medium_mesh
+    from Propagation_Vcoupling import (
+        Modes_compute,
+        compute_coupling_terms_1,
+        attenuation_terms,
     )
-    print("water k_j:", [f"{m.k:.5f}" for m in water_modes])
-    print("bottom k_j:", [f"{m.k:.5f}" for m in bottom_modes])
 
+    cfg = config.SimulationConfig()
+    mesh = build_medium_mesh(cfg, cfg.R_factor[-1])
+    wg = Waveguide(
+        c1=cfg.c_w, c2=cfg.c_s, rho1=cfg.p_w, rho2=cfg.p_s, H=cfg.Hmax, omega=cfg.omega
+    )  # 80 Hz source
+    h = mesh.D
+
+    wnums = wg.find_wavenumbers(wg.H, "water")
+    m = [Mode(wg, "water", wg.H, wnum, i) for i, wnum in enumerate(wnums)]
+
+    all_modes = get_all_modes(wg, h)
+    nmod = cfg.nmod
+    all_modes = [mode_set[:nmod] for mode_set in all_modes]
+    water_modes = [
+        [mode for mode in mode_set if mode.branch == "water"] for mode_set in all_modes
+    ]
+    bottom_modes = [
+        [mode for mode in mode_set if mode.branch == "bottom"] for mode_set in all_modes
+    ]
     # --- coupling coefficients ------------------------------------------
-    all_modes = water_modes + bottom_modes
-    V = coupling_matrix(all_modes)
-    labels = [f"{m.branch[0]}{m.index}" for m in all_modes]
+    slope = -(cfg.D_0 - cfg.D_fin) / (cfg.X_0 - cfg.X_fin)  # slope of the wedge
+    V = [slope * coupling_matrix(mode_set) for mode_set in all_modes]
 
-    if len(water_modes) >= 2:
-        l, j = water_modes[0], water_modes[1]
-        v_analytic = coupling_coefficient(l, j)
-        v_numeric = coupling_coefficient_numeric(wg, "water", 0, "water", 1, h)
-        print(
-            f"\nV_ww[0,1]: closed-form = {v_analytic:.6e}, "
-            f"finite-difference check = {v_numeric:.6e}"
-        )
+    # all_roots, all_phis = Modes_compute(cfg)
+    # all_roots_der, all_phis_der = Modes_compute(cfg, compute_der=True)
+    # V_num = compute_coupling_terms_1(cfg, all_phis, all_phis_der, mesh.dz, mesh.N_w)
+    # np.save("V_steep.npy", V_num)
+    V_num = np.load("V_steep.npy")
 
-    if len(water_modes) >= 2:
-        l, j = water_modes[0], water_modes[0]
-        v_analytic = coupling_coefficient(l, j)
-        v_numeric = coupling_coefficient_numeric(wg, "water", 0, "water", 0, h)
-        print(
-            f"\nV_ww[0,0]: closed-form = {v_analytic:.6e}, "
-            f"finite-difference check = {v_numeric:.6e}"
-        )
+    errors = [norm(vn - v, ord=np.inf) for vn, v in zip(V_num[:-1], V[:-1])]
+    norms = [norm(v, ord=np.inf) for v in V[:-1]]
+    err_rel = [e / n for e, n in zip(errors, norms)]
+    plt.plot(mesh.X[:-1], errors, label="norm_inf(V_num - V)")
+    plt.plot(mesh.X[:-1], err_rel, label="norm_inf(V_num - V)/norm(V)")
+    plt.xlabel("X [m]")
+    plt.ylabel("error [m]")
+    plt.legend()
 
-    # --- plots ------------------------------------------------------------
-    fig, axes = plt.subplots(1, 4, figsize=(19, 5.5))
-    plot_dispersion(wg, h, "water", ax=axes[0])
-    plot_dispersion(wg, h, "bottom", ax=axes[1])
-    plot_modes(wg, (water_modes[:2] + bottom_modes[:3]), ax=axes[2])
-    plot_coupling_matrix(V, labels_l=labels, labels_j=labels, ax=axes[3])
-    fig.tight_layout()
-    fig.savefig("two_layer_modes_demo.png", dpi=150)
-    print("\nSaved demo figure to two_layer_modes_demo.png")
+    # plot_coupling_matrix(V[0])
+    # plot_coupling_matrix(V_num[0])
+    plot_coupling_matrix(V[0] - V_num[0])
+    plt.show()
 
 
 def test():
@@ -593,4 +624,4 @@ def test():
 
 
 if __name__ == "__main__":
-    test()
+    main()

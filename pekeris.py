@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Tuple
 
 from scipy.optimize import brentq
 
@@ -154,6 +154,16 @@ class Waveguide:
             - (k * h * x2 / (self.rho2 * kappa)) / np.tan(x2 * D) * np.cos(kappa * h)
         )
 
+    @property
+    def kc1(self):
+        """omega / c1  (upper edge of the water-borne band)."""
+        return self.omega / self.c1
+
+    @property
+    def kc2(self):
+        """omega / c2  (water-borne / bottom-borne cutoff)."""
+        return self.omega / self.c2
+
     def dk_dh(self, k, h, branch: Branch):
         """d k_j / dh via the implicit function theorem applied to G(k,h)=0."""
         if branch == "water":
@@ -197,6 +207,32 @@ class Waveguide:
         margin: float = 1e-4,
         validate_tol: float = 1e-6,
     ) -> np.ndarray:
+        # in case of a single layer this currently only returns the first 500 mode numbers
+        if branch == "water" and np.isclose(h, 0):
+            # pure sine modes in bottom
+            return np.array([])
+        if branch == "water" and np.isclose(h, self.H):
+            # pure sine modes in water
+            tmp = self.omega**2 / self.c1**2
+            kjs = []
+            n = 1
+            while tmp > (n * np.pi / self.H) ** 2:
+                kjs.append(np.sqrt(tmp - (n * np.pi / self.H) ** 2))
+                n += 1
+            return np.array(kjs)
+        if branch == "bottom" and np.isclose(h, self.H):
+            # pure sine modes in water
+            return np.array([])
+        if branch == "bottom" and np.isclose(h, 0):
+            # pure sine modes in bottom
+            tmp = self.omega**2 / self.c2**2
+            kjs = []
+            n = 1
+            while tmp > (n * np.pi / self.H) ** 2:
+                kjs.append(np.sqrt(tmp - (n * np.pi / self.H) ** 2))
+                n += 1
+            return np.array(kjs)
+
         if branch == "water":
             kmin = self.omega / self.c2 * (1 + margin)
             kmax = self.omega / self.c1 * (1 - margin)
@@ -236,6 +272,10 @@ class Waveguide:
     # ---- normalization integrals N^2 = (phi_j, phi_j) -------------------
     def norm2(self, k, h, branch: Branch):
         D = self.H - h
+        if np.isclose(h, 0):
+            return self.H / (2 * self.rho2)
+        elif np.isclose(D, 0):
+            return self.H / (2 * self.rho1)
         kappa = self.kappa1(k)
         term1 = (1 / (2 * self.rho1)) * (
             h - np.sin(kappa * h) * np.cos(kappa * h) / kappa
@@ -313,6 +353,92 @@ class Waveguide:
         z = np.atleast_1d(np.asarray(z, dtype=float))
         return np.where(z < h, self.rho1, self.rho2)
 
+    @classmethod
+    def from_config(cls, cfg):
+        return cls(cfg.c_w, cfg.c_s, cfg.p_w, cfg.p_s, cfg.Hmax, cfg.omega)
+
+    @staticmethod
+    def _prufer_jump(x, r):
+        """Continuous branch of atan2(r sin x, cos x) for r >= 0 (|result - x| < pi/2)."""
+        t = np.arctan2(r * np.sin(x), np.cos(x))
+        return x + (t - x + np.pi) % (2 * np.pi) - np.pi
+
+    def water_phase(self, k, h):
+        """Xi_w(k, h); water-borne modes are the solutions of Xi_w = m*pi, m=1,2,..."""
+        D = self.H - h
+        xi = self.kappa1(k)
+        g = self.gamma2(k)
+        tg = np.tanh(g * D) / g if g > 0 else D          # tanh(gamma2 D)/gamma2
+        return xi * h + np.arctan((self.rho2 / self.rho1) * xi * tg)
+
+    def bottom_phase(self, k, h):
+        """Phi_b(k, h); bottom-borne modes are the solutions of Phi_b = m*pi."""
+        D = self.H - h
+        xi, x2 = self.kappa1(k), self.kappa2(k)
+        r = (self.rho1 * x2) / (self.rho2 * xi)
+        return self._prufer_jump(xi * h, r) + x2 * D
+
+    @staticmethod
+    def _count_below(x):
+        """#{integers m >= 1 : m*pi < x}."""
+        return max(int(np.ceil(x / np.pi)) - 1, 0)
+
+    def count_modes(self, h: float) -> Tuple[int, int]:
+        """
+        Exact number of (water-borne, bottom-borne) modes at depth h, from
+        Sturm's oscillation theorem (no root finding involved).
+        """
+        n_w = self._count_below(self.water_phase(self.kc2, h))
+        n_tot = self._count_below(self.bottom_phase(0.0, h))
+        return n_w, n_tot - n_w
+
+    # ---- root finding: k_j(h) for a given branch -----------------------
+    def find_wavenumbers_pruefer(self, h: float, branch: Branch) -> np.ndarray:
+        """
+        Return *all* roots k_j of G_branch(k, h) = 0 in the physical band,
+        sorted in increasing order:
+
+            water-borne : omega/c2 < k < omega/c1   (kappa1, gamma2 real)
+            bottom-borne: 0        < k < omega/c2   (kappa1, kappa2   real)
+
+        Mode m (counted from the largest k) solves the monotone-count
+        equation  water_phase(k) = m*pi  (m = 1 .. n_w)  resp.
+        bottom_phase(k) = m*pi  (m = n_w+1 .. n_tot), where n_w, n_tot come
+        from Sturm's oscillation theorem; see the long comment above
+        `water_phase`. Each equation has exactly one root in the full band
+        (a proven sign change between the band edges), so the search is a
+        plain bracketed brentq per mode -- no sampling grid, no margins, no
+        pole handling -- and the returned list is complete by construction,
+        for arbitrarily deep guides / high frequencies.
+
+        Modes lying arbitrarily close to a band edge (which for large H
+        happens routinely: k_m -> omega/c1 for the low-order water-borne
+        modes) are therefore found like any other; the previous
+        margin-based scan systematically discarded them.
+        """
+        eps = 4 * np.finfo(float).eps
+        if branch == "water":
+            n_w = self._count_below(self.water_phase(self.kc2, h))
+            f = lambda k, m: self.water_phase(k, h) - m * np.pi
+            roots = [brentq(f, self.kc2, self.kc1, args=(m,), xtol=1e-15, rtol=eps)
+                     for m in range(1, n_w + 1)]
+        elif branch == "bottom":
+            n_w = self._count_below(self.water_phase(self.kc2, h))
+            n_tot = self._count_below(self.bottom_phase(0.0, h))
+            # consistency of the two band descriptions at the cutoff k = omega/c2
+            # (Phi_b(omega/c2) is an exact multiple of pi equal to n_w*pi)
+            edge = int(np.rint(self.bottom_phase(self.kc2, h) / np.pi))
+            if edge != n_w:
+                warnings.warn(
+                    f"mode count at the cutoff is ambiguous (water side {n_w}, "
+                    f"bottom side {edge}); a mode may sit exactly at k=omega/c2.",
+                    RuntimeWarning)
+            f = lambda k, m: self.bottom_phase(k, h) - m * np.pi
+            roots = [brentq(f, 0.0, self.kc2, args=(m,), xtol=1e-15, rtol=eps)
+                     for m in range(n_w + 1, n_tot + 1)]
+        else:
+            raise ValueError("branch must be 'water' or 'bottom'")
+        return np.array(sorted(roots))
 
 # =====================================================================
 # 2. Mode objects: a wavenumber together with everything the coupling-
@@ -349,6 +475,9 @@ class Mode:
 
     def __post_init__(self):
         self.compute()
+
+    def dk_dh(self):
+        return self.wg.dk_dh(self.k, self.h, self.branch)
 
     def compute(self):
         wg, k, h = self.wg, self.k, self.h
@@ -401,10 +530,17 @@ class Mode:
                 )
                 / denom**2
             )
+            if np.isinf(denom):
+                denom = 1
+                self.C = 0
+                self.dC = 0
 
     # ---- convenience: evaluate the *normalized* mode shape --------------
     def phi(self, z):
-        return self.wg.phi_raw(z, self.k, self.h, self.branch) / self.N
+        out = self.wg.phi_raw(z, self.k, self.h, self.branch) / self.N
+        if out.shape == (1,) or out.shape == ():
+            out = out.item()
+        return out
 
     def dphi(self, z):
         return self.wg.dphi_raw(z, self.k, self.h, self.branch) / self.N
