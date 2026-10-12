@@ -1,12 +1,23 @@
+"""
+pekeris_waveguide.py
+==========================
+Classes and functions for the normal modes of the two-layer (truncated Pekeris) waveguide.
+This module provides symbolic expressions of the mode functions and their derivatives,
+and in particular methods to compute the coupling coefficients V_jl.
+The computation uses the implicit definition of the wavenumber k_j(h) via the dispersion relation
+G(w, k, h) and thus their derivatives.
+"""
+
 from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field
-from typing import Literal, Tuple
+from typing import Literal, Tuple, Optional
 
 from scipy.optimize import brentq
 
 import numpy as np
+
 
 # Interface-amplitude denominators [sinh(gamma2*D) for water-borne modes,
 # sin(kappa2*D) for bottom-borne modes] occasionally pass very close to zero
@@ -153,6 +164,14 @@ class Waveguide:
             + (k * D / self.rho2) / np.sin(x2 * D) ** 2 * np.sin(kappa * h)
             - (k * h * x2 / (self.rho2 * kappa)) / np.tan(x2 * D) * np.cos(kappa * h)
         )
+
+    def dG_dk(self, k, h, branch):
+        if branch == "water":
+            return self.dGw_dk(k, h)
+        elif branch == "bottom":
+            return self.dGb_dk(k, h)
+        else:
+            raise ValueError("branch must be either 'water' or 'bottom', found {branch}")
 
     @property
     def kc1(self):
@@ -393,10 +412,10 @@ class Waveguide:
         return n_w, n_tot - n_w
 
     # ---- root finding: k_j(h) for a given branch -----------------------
-    def find_wavenumbers_pruefer(self, h: float, branch: Branch) -> np.ndarray:
+    def find_wavenumbers_pruefer(self, h: float, branch: Branch, nmodes: Optional[int]=None) -> np.ndarray:
         """
-        Return *all* roots k_j of G_branch(k, h) = 0 in the physical band,
-        sorted in increasing order:
+        Return *nmodes* or *all* roots k_j of G_branch(k, h) = 0 in the physical 
+        band, sorted in increasing order:
 
             water-borne : omega/c2 < k < omega/c1   (kappa1, gamma2 real)
             bottom-borne: 0        < k < omega/c2   (kappa1, kappa2   real)
@@ -419,12 +438,20 @@ class Waveguide:
         eps = 4 * np.finfo(float).eps
         if branch == "water":
             n_w = self._count_below(self.water_phase(self.kc2, h))
+            if nmodes is not None and nmodes < n_w:
+                n_w = nmodes
             f = lambda k, m: self.water_phase(k, h) - m * np.pi
             roots = [brentq(f, self.kc2, self.kc1, args=(m,), xtol=1e-15, rtol=eps)
                      for m in range(1, n_w + 1)]
         elif branch == "bottom":
             n_w = self._count_below(self.water_phase(self.kc2, h))
             n_tot = self._count_below(self.bottom_phase(0.0, h))
+            if nmodes is not None:
+                if nmodes < n_w:
+                    return []
+                elif nmodes < n_tot:
+                    n_tot = nmodes
+
             # consistency of the two band descriptions at the cutoff k = omega/c2
             # (Phi_b(omega/c2) is an exact multiple of pi equal to n_w*pi)
             edge = int(np.rint(self.bottom_phase(self.kc2, h) / np.pi))
@@ -438,7 +465,7 @@ class Waveguide:
                      for m in range(n_w + 1, n_tot + 1)]
         else:
             raise ValueError("branch must be 'water' or 'bottom'")
-        return np.array(sorted(roots))
+        return np.array(sorted(roots, reverse=True))
 
 # =====================================================================
 # 2. Mode objects: a wavenumber together with everything the coupling-

@@ -1,8 +1,9 @@
 """
-two_layer_modes.py
+pekeris_symb.py
 ===================
 
-Normal-mode toolbox for the two-layer (Pekeris-type) waveguide
+Normal-mode toolbox for the two-layer (truncated Pekeris-type) 
+waveguide
 
         phi_zz + (omega^2/c^2) phi = k^2 phi ,   0 <= z <= H
         phi(0) = 0,   phi(H) = 0
@@ -35,34 +36,35 @@ Author: derivation & implementation for Daniel (ACM Group, Univ. Wuppertal)
 
 from __future__ import annotations
 
-import warnings
-from typing import List, Literal, Optional, Tuple
-from operator import attrgetter
+from typing import List, Optional
 
 import numpy as np
-from scipy.optimize import brentq
 from scipy.integrate import quad
+from scipy.optimize import newton
 
-from pekeris import Waveguide, Mode, Branch
+from pekeris_waveguide import Branch, Mode, Waveguide
 
 
-def get_modes_pruefer(wg: Waveguide, h: float, branch: Branch) -> List[Mode]:
-    ks = wg.find_wavenumbers_pruefer(h, branch)
+def get_modes_pruefer(
+    wg: Waveguide,
+    h: float,
+    branch: Branch,
+    nmodes: Optional[int] = None,
+    newton_refine: bool = True,
+) -> List[Mode]:
+    ks = wg.find_wavenumbers_pruefer(h, branch, nmodes=nmodes)
+    if newton_refine:
+        ks = [newton(wg.G, k0, args=(h, branch), fprime=wg.dG_dk) for k0 in ks]
     return [Mode(wg, branch, h, k, index=i) for i, k in enumerate(ks)]
 
 
-def get_all_modes(wg: Waveguide, h: List[float], nmod: Optional[int] = None):
+def get_all_modes(wg: Waveguide, h: List[float], nmodes: Optional[int] = None):
     all_modes = [
-        get_modes_pruefer(wg, hi, "water") + get_modes_pruefer(wg, hi, "bottom")
+        get_modes_pruefer(wg, hi, "water", nmodes=nmodes, newton_refine=False)
+        + get_modes_pruefer(wg, hi, "bottom", nmodes=nmodes, newton_refine=False)
         for hi in h
     ]
-    modes = [
-        sorted(mode_set, key=attrgetter("k"), reverse=True)[:nmod]
-        for mode_set in all_modes
-    ]
-    return modes
-
-
+    return all_modes
 
 
 # =====================================================================
@@ -555,8 +557,6 @@ def plot_coupling_matrix(
 
 
 def main():
-    import matplotlib.pyplot as plt
-
     # --- example two-layer waveguide -----------------------------------
     # non-round numbers deliberately: exact round depths can put kappa2*(H-h)
     # or gamma2*(H-h) at an exact multiple of pi for some mode, which makes
@@ -564,13 +564,12 @@ def main():
     # normalized mode and V_lj stay perfectly finite -- see the
     # `_ILL_CONDITIONED_TOL` warning in Mode.compute().
     import config_test as config
+    import matplotlib.pyplot as plt
     from scipy.linalg import norm
+
     from geometry import build_medium_mesh
-    from Propagation_Vcoupling import (
-        Modes_compute,
-        compute_coupling_terms_1,
-        attenuation_terms,
-    )
+    from Propagation_Vcoupling import (Modes_compute, attenuation_terms,
+                                       compute_coupling_terms_1)
 
     cfg = config.SimulationConfig()
     mesh = build_medium_mesh(cfg, cfg.R_factor[-1])
