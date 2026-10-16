@@ -377,38 +377,53 @@ class Waveguide:
         return cls(cfg.c_w, cfg.c_s, cfg.p_w, cfg.p_s, cfg.Hmax, cfg.omega)
 
     @staticmethod
-    def _prufer_jump(x, r):
-        """Continuous branch of atan2(r sin x, cos x) for r >= 0 (|result - x| < pi/2)."""
-        t = np.arctan2(r * np.sin(x), np.cos(x))
-        return x + (t - x + np.pi) % (2 * np.pi) - np.pi
+    def _prufer_jump(x, r, m=0):
+        """
+        J[x; r] - m*pi for r >= 0, where J[x; r] = n*pi + arctan(r*tan(x - n*pi)),
+        n = round(x/pi), is the continuous branch of atan2(r sin x, cos x)
+        (|J - x| < pi/2). Evaluated as (n - m)*pi + arctan(...) so that no
+        cancellation against the large multiple n*pi occurs when m == n.
+        """
+        n = np.rint(x / np.pi)
+        return (n - m) * np.pi + np.arctan(r * np.tan(x - n * np.pi))
 
-    def water_phase(self, k, h):
-        """Xi_w(k, h); water-borne modes are the solutions of Xi_w = m*pi, m=1,2,..."""
+    def water_phase(self, k, h, m=0):
+        """Xi_w(k, h) - m*pi; water-borne modes are the solutions of Xi_w = m*pi, m=1,2,..."""
         D = self.H - h
         xi = self.kappa1(k)
         g = self.gamma2(k)
         tg = np.tanh(g * D) / g if g > 0 else D          # tanh(gamma2 D)/gamma2
-        return xi * h + np.arctan((self.rho2 / self.rho1) * xi * tg)
+        th = xi * h
+        n = np.rint(th / np.pi)
+        return (n - m) * np.pi + (th - n * np.pi) + np.arctan((self.rho2 / self.rho1) * xi * tg)
 
-    def bottom_phase(self, k, h):
+    def bottom_phase(self, k, h, m=0):
         """Phi_b(k, h); bottom-borne modes are the solutions of Phi_b = m*pi."""
         D = self.H - h
         xi, x2 = self.kappa1(k), self.kappa2(k)
         r = (self.rho1 * x2) / (self.rho2 * xi)
-        return self._prufer_jump(xi * h, r) + x2 * D
+        return self._prufer_jump(xi * h, r, m) + x2 * D
 
     @staticmethod
     def _count_below(x):
-        """#{integers m >= 1 : m*pi < x}."""
+        """{integers m >= 1 : m*pi < x}."""
         return max(int(np.ceil(x / np.pi)) - 1, 0)
 
-    def count_modes(self, h: float) -> Tuple[int, int]:
+    def _mode_counts(self, h: float) -> Tuple[int, int]:
         """
         Exact number of (water-borne, bottom-borne) modes at depth h, from
         Sturm's oscillation theorem (no root finding involved).
         """
         n_w = self._count_below(self.water_phase(self.kc2, h))
+        while n_w > 0 and self.water_phase(self.kc2, h, n_w) <= 0:
+            n_w -= 1
         n_tot = self._count_below(self.bottom_phase(0.0, h))
+        while n_tot > 0 and self.bottom_phase(0.0, h, n_tot) <= 0:
+            n_tot -= 1
+        return n_w, n_tot - n_w
+
+    def count_modes(self, h: float) -> Tuple[int, int]:
+        n_w, n_tot = self._mode_counts(h)
         return n_w, n_tot - n_w
 
     # ---- root finding: k_j(h) for a given branch -----------------------
@@ -436,33 +451,39 @@ class Waveguide:
         margin-based scan systematically discarded them.
         """
         eps = 4 * np.finfo(float).eps
+        n_w, n_tot = self._mode_counts(h)
+        n_tot = min(n_tot, nmodes)
         if branch == "water":
-            n_w = self._count_below(self.water_phase(self.kc2, h))
-            if nmodes is not None and nmodes < n_w:
-                n_w = nmodes
-            f = lambda k, m: self.water_phase(k, h) - m * np.pi
-            roots = [brentq(f, self.kc2, self.kc1, args=(m,), xtol=1e-15, rtol=eps)
-                     for m in range(1, n_w + 1)]
+            n_w = min(n_w, nmodes)
+            k_lo = self.kc2
+            roots = []
+            for m in range(1, n_w + 1):
+                k = brentq(self.water_phase, k_lo, self.kc1, args=(h, m), xtol=1e-15, rtol=eps)
+                if k <= k_lo:   # converged onto the cutoff: closer than 1 ulp
+                    k = np.nextafter(k_lo, np.inf)
+                    self._warn_cutoff(k, h, "water-borne")
+                roots.append(k)
         elif branch == "bottom":
-            n_w = self._count_below(self.water_phase(self.kc2, h))
-            n_tot = self._count_below(self.bottom_phase(0.0, h))
-            if nmodes is not None:
-                if nmodes < n_w:
-                    return []
-                elif nmodes < n_tot:
-                    n_tot = nmodes
-
-            # consistency of the two band descriptions at the cutoff k = omega/c2
-            # (Phi_b(omega/c2) is an exact multiple of pi equal to n_w*pi)
-            edge = int(np.rint(self.bottom_phase(self.kc2, h) / np.pi))
-            if edge != n_w:
+            if nmodes < n_w:
+                return []
+            # consistency of the two descriptions at the cutoff: with n = round(xi1 h/pi),
+            # n_w = n if B > 0 and n - 1 if B < 0 (B defined above), so n - n_w is 0 or 1
+            n_edge = int(np.rint(self.kappa1(self.kc2) * h / np.pi))
+            if n_edge - n_w not in (0, 1):
                 warnings.warn(
-                    f"mode count at the cutoff is ambiguous (water side {n_w}, "
-                    f"bottom side {edge}); a mode may sit exactly at k=omega/c2.",
+                    f"inconsistent mode count at the cutoff (water-side count {n_w}, "
+                    f"round(xi1 h/pi) = {n_edge}); results near k = omega/c2 are unreliable.",
                     RuntimeWarning)
-            f = lambda k, m: self.bottom_phase(k, h) - m * np.pi
-            roots = [brentq(f, 0.0, self.kc2, args=(m,), xtol=1e-15, rtol=eps)
-                     for m in range(n_w + 1, n_tot + 1)]
+            k_hi = np.nextafter(self.kc2, 0.0)
+            roots = []
+            for m in range(n_w + 1, n_tot + 1):
+                if self.bottom_phase(k_hi, h, m) >= 0:
+                    # the sign change lies between k_hi and the cutoff itself, i.e. the mode is
+                    # within one ulp of omega/c2: report the adjacent double, below the cutoff
+                    roots.append(k_hi)
+                    self._warn_cutoff(k_hi, h, "bottom-borne")
+                    continue
+                roots.append(brentq(self.bottom_phase, 0.0, k_hi, args=(h, m), xtol=1e-15, rtol=eps))
         else:
             raise ValueError("branch must be 'water' or 'bottom'")
         return np.array(sorted(roots, reverse=True))

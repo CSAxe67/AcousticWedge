@@ -4,18 +4,17 @@ Propagation.py
 Coupled multi-mode acoustic propagation (wedge) computation.
 """
 
-import numpy as np
-from scipy.interpolate import interp1d
-from scipy.integrate import cumulative_trapezoid
-from scipy.special import hankel1
 from concurrent.futures import ProcessPoolExecutor
 
+import numpy as np
+from scipy.integrate import cumulative_trapezoid
+from scipy.interpolate import interp1d
+from scipy.special import hankel1
 
+from attenuation import attenuation_terms
 from config import SimulationConfig
 from geometry import build_medium_mesh
-from attenuation import attenuation_terms
-
-from pekeris_symb import coupling_matrix, Waveguide, get_all_modes
+from pekeris_symb import Waveguide, coupling_matrix, get_all_modes
 
 # def _coupled_modes_rhs(A, kj, dkj, Cjl, Tjl, theta):
 #     """Right-hand side dA/dx for the coupled modal amplitudes, at fixed x."""
@@ -228,7 +227,15 @@ def compute_propagation(cfg: SimulationConfig):
     TL = 20 * np.log10(np.abs(4 * P / H0)) - 2.5
 
     # --- 2D TL field (x, z) ---
-    interp_z = interp1d(X, Z, axis=0, kind="linear", fill_value="extrapolate", copy=False, assume_sorted=True)
+    interp_z = interp1d(
+        X,
+        Z,
+        axis=0,
+        kind="linear",
+        fill_value="extrapolate",
+        copy=False,
+        assume_sorted=True,
+    )
     Z_fine = interp_z(X_fine)
     # phi_2d = interp_phi(X_fine)
     # P_2d = np.sum(Ajx[:, np.newaxis, :] * phi_2d, axis=2)
@@ -266,7 +273,7 @@ if __name__ == "__main__":
     print("SAVING RESULTS")
     with open("results.pkl", "wb") as f:
         pickle.dump(results, f)
-    from plot_wedge import plot_tl_2d, load_reference, plot_tl_1d
+    from plot_wedge import load_reference, plot_tl_1d, plot_tl_2d
 
     xref, tlref = load_reference("TL_source_image_20de_downslope.txt")
     plot_tl_2d(cfg, results)
