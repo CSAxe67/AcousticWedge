@@ -2,7 +2,7 @@
 pekeris_symb.py
 ===================
 
-Normal-mode toolbox for the two-layer (truncated Pekeris-type) 
+Normal-mode toolbox for the two-layer (truncated Pekeris-type)
 waveguide
 
         phi_zz + (omega^2/c^2) phi = k^2 phi ,   0 <= z <= H
@@ -285,26 +285,6 @@ def coupling_matrix(modes: List[Mode]) -> np.ndarray:
 # ---------------------------------------------------------------------
 
 
-# def coupling_coefficient_numeric(
-#     wg: Waveguide, mode_l: Mode, mode_j: Mode, eps: float = 1e-8
-# ) -> float:
-#     if not np.isclose(mode_l.h, mode_j.h, eps):
-#         raise ValueError(
-#             "coupling is supposed to occur between modes at the same location"
-#         )
-
-#     def integrand(z: float):
-#         rho = wg.rho1 * (z < mode_l.h) + wg.rho2 * (z >= mode_l.h)
-#         dphi = mode_l.dphi(z)
-#         phi = mode_j.phi(z)
-#         return(phi * dphi / rho).item()
-
-#     I1, _ = quad(integrand, 0, mode_l.h, limit=300)
-#     I2, _ = quad(integrand, mode_l.h, wg.H, limit=300)
-
-#     return I1 + I2
-
-
 def coupling_coefficient_numeric(
     wg: Waveguide,
     branch_l: Branch,
@@ -337,67 +317,67 @@ def coupling_coefficient_numeric(
     return I1 + I2
 
 
-def coupling_coefficient_T(
-    j: Mode, l: Mode, h_t: float, f1: float, f2: float, eta: float
-) -> float:
-    """
-    Closed-form attenuative coupling coefficient
+# def coupling_coefficient_T(
+#     j: Mode, l: Mode, h_t: float, f1: float, f2: float, eta: float
+# ) -> float:
+#     """
+#     Closed-form attenuative coupling coefficient
 
-        T_jl = omega^2 eta (phi_j, phi_l f_z)   [plain product, no 1/rho weight]
+#         T_jl = omega^2 eta (phi_j, phi_l f_z)   [plain product, no 1/rho weight]
 
-    for any combination of branches, any (j, l) including j == l. `h_t`
-    is the depth (h <= h_t <= H) where the attenuation profile switches
-    from the constant f1 to f1 + z*f2.
-    """
-    if j.wg is not l.wg or j.h != l.h:
-        raise ValueError("modes j and l must share the same Waveguide and depth h")
-    if not (j.h <= h_t <= j.wg.H):
-        # set transition to H if outside the domain
-        h_t = j.wg.H
+#     for any combination of branches, any (j, l) including j == l. `h_t`
+#     is the depth (h <= h_t <= H) where the attenuation profile switches
+#     from the constant f1 to f1 + z*f2.
+#     """
+#     if j.wg is not l.wg or j.h != l.h:
+#         raise ValueError("modes j and l must share the same Waveguide and depth h")
+#     if not (j.h <= h_t <= j.wg.H):
+#         # set transition to H if outside the domain
+#         h_t = j.wg.H
 
-    wg = j.wg
-    D = j.D  # H - h
-    Dt = wg.H - h_t
-    rho2 = wg.rho2  # unused directly (T has no 1/rho weight) but kept for clarity
+#     wg = j.wg
+#     D = j.D  # H - h
+#     Dt = wg.H - h_t
+#     rho2 = wg.rho2  # unused directly (T has no 1/rho weight) but kept for clarity
 
-    if j.branch == "water" and l.branch == "water":
-        pref = j.A * l.A
-        I0 = pref * J_ss(j.g2, l.g2, D)
-        I1 = pref * (wg.H * J_ss(j.g2, l.g2, Dt) - K_ss(j.g2, l.g2, Dt))
-    elif j.branch == "bottom" and l.branch == "bottom":
-        pref = j.C * l.C
-        I0 = pref * L_ss(j.x2, l.x2, D)
-        I1 = pref * (wg.H * L_ss(j.x2, l.x2, Dt) - M_ss(j.x2, l.x2, Dt))
-    elif j.branch == "water" and l.branch == "bottom":
-        pref = -j.A * l.C
-        I0 = pref * S_sc(j.g2, l.x2, D)
-        I1 = pref * (wg.H * S_sc(j.g2, l.x2, Dt) - W_fun(j.g2, l.x2, Dt))
-    elif j.branch == "bottom" and l.branch == "water":
-        # T_jl = T_lj (plain product, no derivative asymmetry): reuse the
-        # water-bottom formula with the roles of j and l swapped.
-        pref = -l.A * j.C
-        I0 = pref * S_sc(l.g2, j.x2, D)
-        I1 = pref * (wg.H * S_sc(l.g2, j.x2, Dt) - W_fun(l.g2, j.x2, Dt))
-    else:
-        raise ValueError("branch must be 'water' or 'bottom'")
+#     if j.branch == "water" and l.branch == "water":
+#         pref = j.A * l.A
+#         I0 = pref * J_ss(j.g2, l.g2, D)
+#         I1 = pref * (wg.H * J_ss(j.g2, l.g2, Dt) - K_ss(j.g2, l.g2, Dt))
+#     elif j.branch == "bottom" and l.branch == "bottom":
+#         pref = j.C * l.C
+#         I0 = pref * L_ss(j.x2, l.x2, D)
+#         I1 = pref * (wg.H * L_ss(j.x2, l.x2, Dt) - M_ss(j.x2, l.x2, Dt))
+#     elif j.branch == "water" and l.branch == "bottom":
+#         pref = -j.A * l.C
+#         I0 = pref * S_sc(j.g2, l.x2, D)
+#         I1 = pref * (wg.H * S_sc(j.g2, l.x2, Dt) - W_fun(j.g2, l.x2, Dt))
+#     elif j.branch == "bottom" and l.branch == "water":
+#         # T_jl = T_lj (plain product, no derivative asymmetry): reuse the
+#         # water-bottom formula with the roles of j and l swapped.
+#         pref = -l.A * j.C
+#         I0 = pref * S_sc(l.g2, j.x2, D)
+#         I1 = pref * (wg.H * S_sc(l.g2, j.x2, Dt) - W_fun(l.g2, j.x2, Dt))
+#     else:
+#         raise ValueError("branch must be 'water' or 'bottom'")
 
-    return wg.omega**2 * eta * (f1 * I0 + f2 * I1) / (j.N * l.N)
+#     return wg.omega**2 * eta * (f1 * I0 + f2 * I1) / (j.N * l.N)
 
 
-def coupling_matrix_T(
-    modes: List[Mode], h_t: float, f1: float, f2: float, eta: float
-) -> np.ndarray:
-    """
-    Build the (len(modes_j) x len(modes_l)) matrix of attenuative coupling
-    coefficients T[p, q] = coupling_coefficient_T(modes_j[p], modes_l[q],
-    h_t, f1, f2, eta), diagonal entries included (T has no orthogonality
-    short-cut, so unlike coupling_matrix there is nothing special about j==l).
-    """
-    T = np.empty((len(modes), len(modes)))
-    for p, j in enumerate(modes):
-        for q, l in enumerate(modes):
-            T[p, q] = coupling_coefficient_T(j, l, h_t, f1, f2, eta)
-    return T
+# def coupling_matrix_T(
+#     modes: List[Mode], h_t: float, f1: float, f2: float, eta: float
+# ) -> np.ndarray:
+#     """
+#     Build the (len(modes_j) x len(modes_l)) matrix of attenuative coupling
+#     coefficients T[p, q] = coupling_coefficient_T(modes_j[p], modes_l[q],
+#     h_t, f1, f2, eta), diagonal entries included (T has no orthogonality
+#     short-cut, so unlike coupling_matrix there is nothing special about j==l).
+#     """
+#     T = np.empty((len(modes), len(modes)))
+#     for p, j in enumerate(modes):
+#         for q, l in enumerate(modes):
+#             T[p, q] = coupling_coefficient_T(j, l, h_t, f1, f2, eta)
+#     return T
 
 
 def coupling_matrix_from_k(wg: Waveguide, ks: List[float], h: float) -> np.ndarray:
@@ -563,13 +543,16 @@ def main():
     # the raw (un-normalized) amplitude C or A blow up even though the
     # normalized mode and V_lj stay perfectly finite -- see the
     # `_ILL_CONDITIONED_TOL` warning in Mode.compute().
-    import config_test as config
+    import config_small as config
     import matplotlib.pyplot as plt
     from scipy.linalg import norm
 
     from geometry import build_medium_mesh
-    from Propagation_Vcoupling import (Modes_compute, attenuation_terms,
-                                       compute_coupling_terms_1)
+    from Propagation_Vcoupling import (
+        Modes_compute,
+        attenuation_terms,
+        compute_coupling_terms_1,
+    )
 
     cfg = config.SimulationConfig()
     mesh = build_medium_mesh(cfg, cfg.R_factor[-1])
@@ -609,17 +592,8 @@ def main():
     plt.ylabel("error [m]")
     plt.legend()
 
-    # plot_coupling_matrix(V[0])
-    # plot_coupling_matrix(V_num[0])
     plot_coupling_matrix(V[0] - V_num[0])
     plt.show()
-
-
-def test():
-    import matplotlib.pyplot as plt
-
-    wg = Waveguide(c1=1500, c2=1800, rho1=1.0, rho2=1.5, H=400, omega=2 * np.pi * 50)
-    water_modes = get_modes(wg, 100, "water")
 
 
 if __name__ == "__main__":

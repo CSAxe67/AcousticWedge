@@ -18,7 +18,6 @@ from scipy.optimize import brentq
 
 import numpy as np
 
-
 # Interface-amplitude denominators [sinh(gamma2*D) for water-borne modes,
 # sin(kappa2*D) for bottom-borne modes] occasionally pass very close to zero
 # for special combinations of h, H and k_j (e.g. round-number depths that
@@ -171,7 +170,9 @@ class Waveguide:
         elif branch == "bottom":
             return self.dGb_dk(k, h)
         else:
-            raise ValueError("branch must be either 'water' or 'bottom', found {branch}")
+            raise ValueError(
+                "branch must be either 'water' or 'bottom', found {branch}"
+            )
 
     @property
     def kc1(self):
@@ -392,10 +393,14 @@ class Waveguide:
         D = self.H - h
         xi = self.kappa1(k)
         g = self.gamma2(k)
-        tg = np.tanh(g * D) / g if g > 0 else D          # tanh(gamma2 D)/gamma2
+        tg = np.tanh(g * D) / g if g > 0 else D  # tanh(gamma2 D)/gamma2
         th = xi * h
         n = np.rint(th / np.pi)
-        return (n - m) * np.pi + (th - n * np.pi) + np.arctan((self.rho2 / self.rho1) * xi * tg)
+        return (
+            (n - m) * np.pi
+            + (th - n * np.pi)
+            + np.arctan((self.rho2 / self.rho1) * xi * tg)
+        )
 
     def bottom_phase(self, k, h, m=0):
         """Phi_b(k, h); bottom-borne modes are the solutions of Phi_b = m*pi."""
@@ -427,9 +432,11 @@ class Waveguide:
         return n_w, n_tot - n_w
 
     # ---- root finding: k_j(h) for a given branch -----------------------
-    def find_wavenumbers_pruefer(self, h: float, branch: Branch, nmodes: Optional[int]=None) -> np.ndarray:
+    def find_wavenumbers_pruefer(
+        self, h: float, branch: Branch, nmodes: Optional[int] = None
+    ) -> np.ndarray:
         """
-        Return *nmodes* or *all* roots k_j of G_branch(k, h) = 0 in the physical 
+        Return *nmodes* or *all* roots k_j of G_branch(k, h) = 0 in the physical
         band, sorted in increasing order:
 
             water-borne : omega/c2 < k < omega/c1   (kappa1, gamma2 real)
@@ -458,8 +465,10 @@ class Waveguide:
             k_lo = self.kc2
             roots = []
             for m in range(1, n_w + 1):
-                k = brentq(self.water_phase, k_lo, self.kc1, args=(h, m), xtol=1e-15, rtol=eps)
-                if k <= k_lo:   # converged onto the cutoff: closer than 1 ulp
+                k = brentq(
+                    self.water_phase, k_lo, self.kc1, args=(h, m), xtol=1e-15, rtol=eps
+                )
+                if k <= k_lo:  # converged onto the cutoff: closer than 1 ulp
                     k = np.nextafter(k_lo, np.inf)
                     self._warn_cutoff(k, h, "water-borne")
                 roots.append(k)
@@ -473,7 +482,8 @@ class Waveguide:
                 warnings.warn(
                     f"inconsistent mode count at the cutoff (water-side count {n_w}, "
                     f"round(xi1 h/pi) = {n_edge}); results near k = omega/c2 are unreliable.",
-                    RuntimeWarning)
+                    RuntimeWarning,
+                )
             k_hi = np.nextafter(self.kc2, 0.0)
             roots = []
             for m in range(n_w + 1, n_tot + 1):
@@ -481,12 +491,26 @@ class Waveguide:
                     # the sign change lies between k_hi and the cutoff itself, i.e. the mode is
                     # within one ulp of omega/c2: report the adjacent double, below the cutoff
                     roots.append(k_hi)
-                    self._warn_cutoff(k_hi, h, "bottom-borne")
+                    # self._warn_cutoff(k_hi, h, "bottom-borne")
                     continue
-                roots.append(brentq(self.bottom_phase, 0.0, k_hi, args=(h, m), xtol=1e-15, rtol=eps))
+                roots.append(
+                    brentq(
+                        self.bottom_phase, 0.0, k_hi, args=(h, m), xtol=1e-15, rtol=eps
+                    )
+                )
         else:
             raise ValueError("branch must be 'water' or 'bottom'")
         return np.array(sorted(roots, reverse=True))
+
+    def _warn_cutoff(self, k, h, kind):
+        warnings.warn(
+            f"{kind} mode within roundoff of the cutoff omega/c2 at h={h:.6g}: k cannot "
+            f"resolve it (returned k = {k!r}, adjacent to omega/c2 = {self.kc2!r}); the mode "
+            "ansatz is (nearly) singular there, so amplitudes and coupling coefficients "
+            "involving this mode lose precision.",
+            RuntimeWarning,
+        )
+
 
 # =====================================================================
 # 2. Mode objects: a wavenumber together with everything the coupling-
