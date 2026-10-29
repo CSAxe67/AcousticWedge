@@ -32,23 +32,27 @@ def _process_one(i, DZ_W, N_w, N_tot, c_w, c_s, p_w, p_s, nmod, omega):
     upper = np.zeros(N_tot - 1)
 
     diag[1:nw] = -2.0 / dz**2 + (omega / c_w) ** 2
-    diag[nw + 1:N_tot - 1] = -2.0 / dz**2 + (omega / c_s) ** 2
+    diag[nw + 1 : N_tot - 1] = -2.0 / dz**2 + (omega / c_s) ** 2
     diag[0] = diag[-1] = 0.0
 
-    upper[1:nw - 1] = 1.0 / dz**2
-    upper[nw + 1:N_tot - 2] = 1.0 / dz**2
+    upper[1 : nw - 1] = 1.0 / dz**2
+    upper[nw + 1 : N_tot - 2] = 1.0 / dz**2
     upper[0] = upper[-1] = 0.0
 
     # Water/sediment interface
     dp, dm = p_w, p_s
     cp, cm = c_w, c_s
-    diag[nw] = (omega**2 * (dm / ((dp + dm) * cp**2) + dp / ((dp + dm) * cm**2)) - 2.0 / dz**2)
+    diag[nw] = (
+        omega**2 * (dm / ((dp + dm) * cp**2) + dp / ((dp + dm) * cm**2)) - 2.0 / dz**2
+    )
     upper[nw - 1] = (2.0 / dz**2) * (dp / (dp + dm))
     upper[nw] = (2.0 / dz**2) * (dm / (dp + dm))
 
     n_sel = int(nmod)
 
-    eigenvalues, eigenvectors = eigh_tridiagonal(diag, upper)
+    eigenvalues, eigenvectors = eigh_tridiagonal(
+        diag, upper, select="i", select_range=(N_tot - n_sel - 1, N_tot - 1)
+    )
 
     lam = eigenvalues[::-1][:n_sel]
     vecs = eigenvectors[:, ::-1][:, :n_sel]
@@ -73,10 +77,10 @@ def _process_one(i, DZ_W, N_w, N_tot, c_w, c_s, p_w, p_s, nmod, omega):
 def _run_richardson(cfg: SimulationConfig, process_fn, compute_der=False):
     """
     Computes mode shapes and wavenumbers.
-    
+
     - If `compute_der=True`: Computes modes ONLY on the finest mesh (R_factor[2])
       without Richardson extrapolation.
-    - If `compute_der=False`: Builds mesh at 3 resolutions (cfg.R_factor) and applies 
+    - If `compute_der=False`: Builds mesh at 3 resolutions (cfg.R_factor) and applies
       Richardson extrapolation (2nd order in dz) on wavenumbers.
 
     Parameters
@@ -107,7 +111,9 @@ def _run_richardson(cfg: SimulationConfig, process_fn, compute_der=False):
         mesh_fine = build_medium_mesh(cfg, r_finest, compute_derivative=True)
         n_pos = len(mesh_fine.Z)
 
-        print(f"Direct computation (no Richardson) over {n_pos} positions on finest mesh...")
+        print(
+            f"Direct computation (no Richardson) over {n_pos} positions on finest mesh..."
+        )
 
         worker = partial(
             process_fn,
@@ -138,7 +144,9 @@ def _run_richardson(cfg: SimulationConfig, process_fn, compute_der=False):
     mesh2 = build_medium_mesh(cfg, R_factor[2], compute_derivative=False)
 
     n_pos = len(mesh0.Z)
-    print(f"Parallel computation with Richardson extrapolation over {n_pos} positions...")
+    print(
+        f"Parallel computation with Richardson extrapolation over {n_pos} positions..."
+    )
 
     worker = partial(
         process_fn,
@@ -209,7 +217,9 @@ def Modes_compute(cfg: SimulationConfig, compute_der=False):
 # ============================================================
 # IMAGINARY PART OF THE WAVENUMBERS (ATTENUATION)
 # ============================================================
-def compute_imaginary_wavenumbers(cfg: SimulationConfig, all_roots, all_phis, DZ_W, N_w):
+def compute_imaginary_wavenumbers(
+    cfg: SimulationConfig, all_roots, all_phis, DZ_W, N_w
+):
     """
     Adds the imaginary part (attenuation) to the real wavenumbers.
     """
@@ -286,8 +296,10 @@ def compute_mode_derivatives_z(all_modes, DZ_W, N_w):
         dm[0, :] = 0.0
         dm[-1, :] = 0.0
 
-        dm[1:nw, :] = (modes[2:nw + 1, :] - modes[0:nw - 1, :]) / (2.0 * dz)
-        dm[nw + 1:N - 1, :] = (modes[nw + 2:N, :] - modes[nw:N - 2, :]) / (2.0 * dz)
+        dm[1:nw, :] = (modes[2 : nw + 1, :] - modes[0 : nw - 1, :]) / (2.0 * dz)
+        dm[nw + 1 : N - 1, :] = (modes[nw + 2 : N, :] - modes[nw : N - 2, :]) / (
+            2.0 * dz
+        )
 
         # Interface: average of the left and right derivatives
         d_left = (modes[nw, :] - modes[nw - 1, :]) / dz
