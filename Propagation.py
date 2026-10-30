@@ -20,7 +20,6 @@ from attenuation import attenuation_terms
 from coupling import compute_couplingterms_2
 
 
-
 def _coupled_modes_rhs(A, kj, dkj, Cjl, Tjl, theta):
     """Right-hand side dA/dx for the coupled modal amplitudes, at fixed x."""
     delta_theta = -theta[:, None] + theta[None, :]
@@ -28,9 +27,9 @@ def _coupled_modes_rhs(A, kj, dkj, Cjl, Tjl, theta):
     T_term = Tjl * np.exp(1j * delta_theta)
 
     return (
-        - 0.5 * (dkj / kj) * A
-        - 0.5 * (V_term @ (kj * A)) / kj       # K^{-1} V K B
-        - (T_term @ A) / kj                     # K^{-1} T B
+        -0.5 * (dkj / kj) * A
+        - 0.5 * (V_term @ (kj * A)) / kj  # K^{-1} V K B
+        - (T_term @ A) / kj  # K^{-1} T B
     )
 
 
@@ -75,31 +74,72 @@ def compute_propagation(cfg: SimulationConfig):
     # --- Attenuation-induced coupling ---
     T = attenuation_terms(cfg, all_phis, DZ_W, N_w)
 
-   
-
     # --- Bathymetric coupling (bottom slope) ---
     all_dmodes = compute_mode_derivatives_z(all_phis, DZ_W, N_w)
     all_C1ij = compute_couplingterms_2(cfg, all_phis, all_dmodes, all_roots, N_w)
 
-
-    
-
-    kjx_array = np.array(all_roots)     # (N_pos, nmod)
-    phis_array = np.array(all_phis)     # (N_pos, N_tot, nmod)
-    Cjl_array = np.array(all_C1ij)     # (N_pos, nmod, nmod)
-    Tjl_array = np.array(T)             # (N_pos, nmod, nmod)
+    kjx_array = np.array(all_roots)  # (N_pos, nmod)
+    phis_array = np.array(all_phis)  # (N_pos, N_tot, nmod)
+    Cjl_array = np.array(all_C1ij)  # (N_pos, nmod, nmod)
+    Tjl_array = np.array(T)  # (N_pos, nmod, nmod)
     dhdx = np.gradient(D_fine, dx)
 
+    # free some memory
+    del all_phis
+    del all_roots
+    del T
+    del all_C1ij
+
     # --- Interpolation onto the fine grid ---
-    interp_kj_re = interp1d(X, np.real(kjx_array), axis=0, kind="linear", fill_value="extrapolate")
-    interp_phi = interp1d(X, phis_array, axis=0, kind="linear", fill_value="extrapolate")
-    interp_Cjl = interp1d(X, Cjl_array, axis=0, kind="linear", fill_value="extrapolate")
-    interp_Tjl = interp1d(X, Tjl_array, axis=0, kind="linear", fill_value="extrapolate")
+    interp_kj_re = interp1d(
+        X,
+        np.real(kjx_array),
+        axis=0,
+        kind="linear",
+        fill_value="extrapolate",
+        copy=False,
+        assume_sorted=True,
+    )
+    interp_phi = interp1d(
+        X,
+        phis_array,
+        axis=0,
+        kind="linear",
+        fill_value="extrapolate",
+        copy=False,
+        assume_sorted=True,
+    )
+    interp_Cjl = interp1d(
+        X,
+        Cjl_array,
+        axis=0,
+        kind="linear",
+        fill_value="extrapolate",
+        copy=False,
+        assume_sorted=True,
+    )
+    interp_Tjl = interp1d(
+        X,
+        Tjl_array,
+        axis=0,
+        kind="linear",
+        fill_value="extrapolate",
+        copy=False,
+        assume_sorted=True,
+    )
 
     kj_fine_re = interp_kj_re(X_fine)
     dkjx = np.zeros_like(kj_fine_re)
     dkjx[1:-1, :] = (kj_fine_re[2:, :] - kj_fine_re[:-2, :]) / (2 * dx)
-    interp_dkj = interp1d(X_fine, dkjx, axis=0, kind="linear", fill_value="extrapolate")
+    interp_dkj = interp1d(
+        X_fine,
+        dkjx,
+        axis=0,
+        kind="linear",
+        fill_value="extrapolate",
+        copy=False,
+        assume_sorted=True,
+    )
 
     thetajx = cumulative_trapezoid(kj_fine_re, X_fine, axis=0, initial=0)
 
@@ -124,14 +164,22 @@ def compute_propagation(cfg: SimulationConfig):
         Tjl_m = interp_Tjl(xm)
 
         K1 = _coupled_modes_rhs(
-            A, interp_kj_re(x0), interp_dkj(x0),
-            interp_Cjl(x0) * dhdx[ii - 1], interp_Tjl(x0), theta0,
+            A,
+            interp_kj_re(x0),
+            interp_dkj(x0),
+            interp_Cjl(x0) * dhdx[ii - 1],
+            interp_Tjl(x0),
+            theta0,
         )
         K2 = _coupled_modes_rhs(A + 0.5 * dx * K1, kj_m, dkj_m, Cjl_m, Tjl_m, theta_mid)
         K3 = _coupled_modes_rhs(A + 0.5 * dx * K2, kj_m, dkj_m, Cjl_m, Tjl_m, theta_mid)
         K4 = _coupled_modes_rhs(
-            A + dx * K3, interp_kj_re(x1), interp_dkj(x1),
-            interp_Cjl(x1) * dhdx[ii], interp_Tjl(x1), theta1,
+            A + dx * K3,
+            interp_kj_re(x1),
+            interp_dkj(x1),
+            interp_Cjl(x1) * dhdx[ii],
+            interp_Tjl(x1),
+            theta1,
         )
 
         A = A + (dx / 6.0) * (K1 + 2 * K2 + 2 * K3 + K4)
@@ -140,35 +188,65 @@ def compute_propagation(cfg: SimulationConfig):
     Ajx *= np.exp(1j * thetajx)
 
     # --- Pressure field / TL at zr (1D) ---
-    phizrx = interp_phi(X_fine)[:, iz, :]
-    P = np.sum(Ajx * phizrx, axis=1) / np.sqrt(X_fine)   # 3D field
+    # Explicitly computing the product does a number on my memory, so I've optimized it for lower memory usage
+    # P = np.sum(Ajx * phizrx, axis=1) / np.sqrt(X_fine)   # 3D field
     # P = np.sum(Ajx * phizrx, axis=1)   # 2D field
+    P = np.zeros((nx), dtype=complex)
+    for ii in range(nx):
+        phi_ii = interp_phi(X_fine[ii])[iz, :]
+        P[ii] = phi_ii @ Ajx[ii, :]
 
     H0 = hankel1(0, cfg.omega / cfg.c_w)
     TL = 20 * np.log10(np.abs(4 * P / H0)) - 2.5
 
     # --- 2D TL field (x, z) ---
-    interp_z = interp1d(X, Z, axis=0, kind="linear", fill_value="extrapolate")
+    interp_z = interp1d(
+        X,
+        Z,
+        axis=0,
+        kind="linear",
+        fill_value="extrapolate",
+        copy=False,
+        assume_sorted=True,
+    )
     Z_fine = interp_z(X_fine)
-    phi_2d = interp_phi(X_fine)
-    P_2d = np.sum(Ajx[:, np.newaxis, :] * phi_2d, axis=2)
+    # phi_2d = interp_phi(X_fine)
+    # P_2d = np.sum(Ajx[:, np.newaxis, :] * phi_2d, axis=2)
+    P_2d = np.zeros((nx, Z.shape[1]), dtype=complex)
+    for i in range(nx):
+        phi_2d = interp_phi(X_fine[i])
+        P_2d[i, :] = phi_2d @ Ajx[i, :]
 
     P_2d_amp = np.abs(4 * P_2d / H0)
     P_2d_amp = np.where(P_2d_amp < 1e-10, 1e-10, P_2d_amp)
     TL_2d = 20 * np.log10(P_2d_amp) - 2.5
 
     return {
-        "X": X, "Z": Z,
-        "X_fin": X_fine, "D_fin": D_fine, "dx": dx,
-        "TL": TL, "TL_2d": TL_2d, "Z_fine": Z_fine,
-        "phis_array": phis_array, "kjx_array": kjx_array,
+        "X": X,
+        "Z": Z,
+        "X_fin": X_fine,
+        "D_fin": D_fine,
+        "dx": dx,
+        "TL": TL,
+        "TL_2d": TL_2d,
+        "Z_fine": Z_fine,
+        "phis_array": phis_array,
+        "kjx_array": kjx_array,
         "N_tot": N_tot,
-        "iz": iz, "izs": izs,
+        "iz": iz,
+        "izs": izs,
     }
 
 
 if __name__ == "__main__":
     cfg = SimulationConfig()
     results = compute_propagation(cfg)
+    import pickle
+
+    with open("results_num.pkl", "wb") as f:
+        pickle.dump(results, f)
+    from plot_wedge import plot_tl_2d
+
+    plot_tl_2d(cfg, results)
     print(f"Number of modes: {cfg.nmod}")
     print(f"TL computed on {len(results['X_fin'])} points of the fine grid.")
